@@ -199,7 +199,7 @@ select
 	distinct
 	sfc.closed_at::date as closed_day,
 	sfc.staff_id,
-	'chats' as case_type,
+	'Chats' as case_type,
 	'' as trigger_type,
 	sum(sfc.sla_chats) as sla_minutes,
 	sum(sfc.full_sla_chats) as full_sla_minutes,
@@ -222,7 +222,7 @@ select
 	distinct
 	trs.closed_time::date as closed_day,
 	trs.staff_id,
-	'triggers' as case_type,
+	'Triggers' as case_type,
 	case 
 		when lower(l.label_title) like '%%дз тл п%%' or lower(l.label_title) like '%%прогул тл п%%' 
 			then '”чеником был пропущен урок'
@@ -254,7 +254,7 @@ select
 	distinct
 	ds.closed_time::date as closed_day,
 	ds.staff_id,
-	'docherki' as case_type,
+	'Child Tickets' as case_type,
 	'' as trigger_type,
 	null::float as sla_docherki,
 	round(sum(ds.full_sla_docherki)::float/60,2) as full_sla_minutes,
