@@ -200,6 +200,7 @@ select
 	sfc.closed_at::date as closed_day,
 	sfc.staff_id,
 	'chats' as case_type,
+	'' as trigger_type,
 	sum(sfc.sla_chats) as sla_minutes,
 	sum(sfc.full_sla_chats) as full_sla_minutes,
 	count(distinct case_id) as tasks_sla
@@ -215,12 +216,13 @@ join (
  left join omnidesk.labels l 
  	on sfc.labels like '%%' || l.label_id || '%%'
 where lower(l.label_title) not similar to '%отток мвп%|%дз тл п%|%прогул тл п%|%group transfer%|%new payments%|%flm%' or sfc.labels = ''
-group by 1,2,3
+group by 1,2,3,4
 union 
 select 
 	distinct
 	trs.closed_time::date as closed_day,
 	trs.staff_id,
+	'triggers' as case_type,
 	case 
 		when lower(l.label_title) like '%%отток мвп%%' 
 			then 'Ученик не оплатил выставленный счет' 
@@ -232,7 +234,7 @@ select
 			then 'New case from new payments'
 		when lower(l.label_title) like '%%flm%%' 
 			then 'First lesson missed'
-	end as case_type,
+	end as trigger_type,
 	round(sum(trs.sla_triggers)::float/60,2) as sla_minutes,
 	round(sum(trs.full_sla_triggers)::float/60,2) as full_sla_minutes,
 	count(distinct trs.case_id) as tasks_sla
@@ -248,13 +250,14 @@ join (
 left join omnidesk.labels l 
 	on trs.labels like '%%' || l.label_id || '%%'
 where case_type notnull
-group by 1,2,3
+group by 1,2,3,4
 union 
 select 
 	distinct
 	ds.closed_time::date as closed_day,
 	ds.staff_id,
 	'docherki' as case_type,
+	'' as trigger_type,
 	null::float as sla_docherki,
 	round(sum(ds.full_sla_docherki)::float/60,2) as full_sla_minutes,
 	count(distinct ds.case_id) as tasks_sla
@@ -267,4 +270,4 @@ join (
 		from forms.personal_data_dismissed_cs pddc 
 	) pd
 	on pd.corporate_email like '%%' || ds.staff_id || '%%'
-group by 1,2,3,4
+group by 1,2,3,4,5
