@@ -157,7 +157,7 @@ triggers_sla as (
 	where lower(la."action") like '%%ответственный%%'
     and lower(la."change") not like '%%- неизвестный%%' 
     and la."timestamp" < closed_time
-    and lower(l.label_title) similar to '%отток мвп%|%дз тл п%|%прогул тл п%|%group transfer%|%new payments%|%flm%'
+    and lower(l.label_title) similar to '%дз тл п%|%прогул тл п%|%group transfer%|%new payments%|%flm%'
     and c.parent_case_id = 0 and c.channel <> 'call'
     and c.status = 'closed'
 ),
@@ -172,7 +172,7 @@ docherki_sla as (
 	from omnidesk.cases c
 	left join omnidesk.labels l
  		on c.labels like '%%' || l.label_id || '%%'
- 	where (lower(l.label_title) not similar to '%отток мвп%|%дз тл п%|%прогул тл п%|%group transfer%|%new payments%|%flm%' or c.labels = '')
+ 	where (lower(l.label_title) not similar to '%дз тл п%|%прогул тл п%|%group transfer%|%new payments%|%flm%' or c.labels = '')
     and c.parent_case_id <> 0
     and c.status = 'closed'  
 ),
@@ -215,7 +215,7 @@ join (
 	on pd.corporate_email like '%%' || sfc.staff_id || '%%'
  left join omnidesk.labels l 
  	on sfc.labels like '%%' || l.label_id || '%%'
-where lower(l.label_title) not similar to '%отток мвп%|%дз тл п%|%прогул тл п%|%group transfer%|%new payments%|%flm%' or sfc.labels = ''
+where lower(l.label_title) not similar to '%дз тл п%|%прогул тл п%|%group transfer%|%new payments%|%flm%' or sfc.labels = ''
 group by 1,2,3,4
 union 
 select 
@@ -224,8 +224,6 @@ select
 	trs.staff_id,
 	'triggers' as case_type,
 	case 
-		when lower(l.label_title) like '%%отток мвп%%' 
-			then '”ченик не оплатил выставленный счет' 
 		when lower(l.label_title) like '%%дз тл п%%' or lower(l.label_title) like '%%прогул тл п%%' 
 			then '”чеником был пропущен урок'
 		when lower(l.label_title) like '%%group transfer%%' 
