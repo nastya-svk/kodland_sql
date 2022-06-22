@@ -247,7 +247,7 @@ join (
 	on pd.corporate_email like '%%' || trs.staff_id || '%%'
 left join omnidesk.labels l 
 	on trs.labels like '%%' || l.label_id || '%%'
-where case_type notnull
+where trigger_type notnull
 group by 1,2,3,4
 union 
 select 
