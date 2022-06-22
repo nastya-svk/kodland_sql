@@ -159,6 +159,22 @@ triggers_sla as (
     and la."timestamp" < closed_time
     and lower(l.label_title) similar to '%отток мвп%|%дз тл п%|%прогул тл п%|%group transfer%|%new payments%|%flm%'
     and c.parent_case_id = 0 and c.channel <> 'call'
+    and c.status = 'closed'
+),
+docherki_sla as (
+	select 
+		distinct
+		c.case_id,
+		c.staff_id,
+		c.closed_at + interval '3 hours' as closed_time,
+		c.created_at + interval '3 hours' as created_time,
+		datediff(second, created_time, closed_time) as full_sla_docherki
+	from omnidesk.cases c
+	left join omnidesk.labels l
+ 		on c.labels like '%%' || l.label_id || '%%'
+ 	where (lower(l.label_title) not similar to '%отток мвп%|%дз тл п%|%прогул тл п%|%group transfer%|%new payments%|%flm%' or c.labels = '')
+    and c.parent_case_id <> 0
+    and c.status = 'closed'  
 ),
 sla_frt_cases as (
 	select
@@ -198,7 +214,7 @@ join (
 	on pd.corporate_email like '%%' || sfc.staff_id || '%%'
  left join omnidesk.labels l 
  	on sfc.labels like '%%' || l.label_id || '%%'
-where lower(l.label_title) not similar to '%отток мвп%|%дз тл п%|%прогул тл п%|%group transfer%|%new payments%|%flm%'
+where lower(l.label_title) not similar to '%отток мвп%|%дз тл п%|%прогул тл п%|%group transfer%|%new payments%|%flm%' or sfc.labels = ''
 group by 1,2,3
 union 
 select 
@@ -233,3 +249,22 @@ left join omnidesk.labels l
 	on trs.labels like '%%' || l.label_id || '%%'
 where case_type notnull
 group by 1,2,3
+union 
+select 
+	distinct
+	ds.closed_time::date as closed_day,
+	ds.staff_id,
+	'docherki' as case_type,
+	null::float as sla_docherki,
+	round(sum(ds.full_sla_docherki)::float/60,2) as full_sla_minutes,
+	count(distinct ds.case_id) as tasks_sla
+from docherki_sla ds
+join (
+		select pdac.full_name, pdac."group", pdac.corporate_email, pdac.department, pdac.first_date
+		from forms.personal_data_active_cs pdac 
+			union
+		select pddc.full_name, pddc."group", pddc.corporate_email, pddc.department, pddc.first_date
+		from forms.personal_data_dismissed_cs pddc 
+	) pd
+	on pd.corporate_email like '%%' || ds.staff_id || '%%'
+group by 1,2,3,4
