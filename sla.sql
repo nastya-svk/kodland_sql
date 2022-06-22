@@ -212,7 +212,7 @@ join (
 		select pddc.full_name, pddc."group", pddc.corporate_email, pddc.department, pddc.first_date
 		from forms.personal_data_dismissed_cs pddc 
 	) pd
-	on pd.corporate_email like '%%' || sfc.staff_id || '%%'
+	on pd.corporate_email like '%%' || sfc.staff_id || '%%' and sfc.staff_id > 0
  left join omnidesk.labels l 
  	on sfc.labels like '%%' || l.label_id || '%%'
 where lower(l.label_title) not similar to '%дз тл п%|%прогул тл п%|%group transfer%|%new payments%|%flm%' or sfc.labels = ''
@@ -244,7 +244,7 @@ join (
 		select pddc.full_name, pddc."group", pddc.corporate_email, pddc.department, pddc.first_date
 		from forms.personal_data_dismissed_cs pddc 
 	) pd
-	on pd.corporate_email like '%%' || trs.staff_id || '%%'
+	on pd.corporate_email like '%%' || trs.staff_id || '%%'  and trs.staff_id > 0
 left join omnidesk.labels l 
 	on trs.labels like '%%' || l.label_id || '%%'
 where trigger_type notnull
@@ -267,5 +267,5 @@ join (
 		select pddc.full_name, pddc."group", pddc.corporate_email, pddc.department, pddc.first_date
 		from forms.personal_data_dismissed_cs pddc 
 	) pd
-	on pd.corporate_email like '%%' || ds.staff_id || '%%'
+	on pd.corporate_email like '%%' || ds.staff_id || '%%' and ds.staff_id > 0
 group by 1,2,3,4,5

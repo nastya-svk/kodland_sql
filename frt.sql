@@ -1,4 +1,3 @@
-
 with client_messages as (
     select 
         message_id ,
@@ -192,7 +191,7 @@ join (
 		select pddc.full_name, pddc."group", pddc.corporate_email, pddc.department, pddc.first_date
 		from forms.personal_data_dismissed_cs pddc 
 	) pd
-	on pd.corporate_email like '%%' || frt_staff_id || '%%'
+	on pd.corporate_email like '%%' || frt_staff_id || '%%' and frt_staff_id > 0
  left join omnidesk.labels l 
  	on c.labels like '%%' || l.label_id || '%%'
 where lower(l.label_title) not similar to '%отток мвп%|%дз тл п%|%прогул тл п%|%group transfer%|%new payments%|%flm%'
