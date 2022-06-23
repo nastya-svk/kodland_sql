@@ -198,8 +198,8 @@ sla_frt_cases as (
 	where c.staff_id > 0 and c.status = 'closed' and c.deleted = false and c.spam = false
 	group by 1,2,3,4,5,6
 	order by 1
-)/*,
-all_cases as (*/
+),
+all_cases as (
 select 
 	distinct
 	sfc.closed_at::date as closed_day,
@@ -242,7 +242,6 @@ select
 		when lower(l.label_title) like '%%flm%%' 
 			then 'First lesson missed'
 	end as trigger_type,
-	trs.labels,
 	round(trs.sla_triggers::float/60,2) as sla_minutes,
 	round(trs.full_sla_triggers::float/60,2) as full_sla_minutes
 from triggers_sla trs
