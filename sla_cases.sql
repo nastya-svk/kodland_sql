@@ -172,7 +172,11 @@ docherki_sla as (
 	from omnidesk.cases c
 	left join omnidesk.labels l
  		on c.labels like '%%' || l.label_id || '%%'
- 	where (lower(l.label_title) not similar to '%%дз тл п%%|%%прогул тл п%%|%%group transfer%%|%%new payments%%|%%flm%%' or c.labels = '')
+ 	where ((lower(l.label_title) not like '%%дз тл п%%'
+	   and lower(l.label_title) not like '%%прогул тл п%%'
+	   and lower(l.label_title) not like '%%group transfer%%' 
+	   and lower(l.label_title) not like '%%new payments%%' 
+	   and lower(l.label_title) not like '%%flm%%') or c.labels = '')
     and c.parent_case_id <> 0
     and c.status = 'closed'  
 ),
@@ -194,8 +198,8 @@ sla_frt_cases as (
 	where c.staff_id > 0 and c.status = 'closed' and c.deleted = false and c.spam = false
 	group by 1,2,3,4,5,6
 	order by 1
-),
-all_cases as (
+)/*,
+all_cases as (*/
 select 
 	distinct
 	sfc.closed_at::date as closed_day,
@@ -216,7 +220,11 @@ join (
 	on pd.corporate_email like '%%' || sfc.staff_id || '%%'
  left join omnidesk.labels l 
  	on sfc.labels like '%%' || l.label_id || '%%'
-where lower(l.label_title) not similar to '%%дз тл п%%|%%прогул тл п%%|%%group transfer%%|%%new payments%%|%%flm%%' or sfc.labels = ''
+where (lower(l.label_title) not like '%%дз тл п%%'
+	   and lower(l.label_title) not like '%%прогул тл п%%'
+	   and lower(l.label_title) not like '%%group transfer%%' 
+	   and lower(l.label_title) not like '%%new payments%%' 
+	   and lower(l.label_title) not like '%%flm%%') or sfc.labels = ''
 union 
 select 
 	distinct
@@ -234,6 +242,7 @@ select
 		when lower(l.label_title) like '%%flm%%' 
 			then 'First lesson missed'
 	end as trigger_type,
+	trs.labels,
 	round(trs.sla_triggers::float/60,2) as sla_minutes,
 	round(trs.full_sla_triggers::float/60,2) as full_sla_minutes
 from triggers_sla trs
