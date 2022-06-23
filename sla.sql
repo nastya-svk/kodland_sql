@@ -152,6 +152,8 @@ triggers_sla as (
 	from omnidesk.lenta_active la
 	join omnidesk.cases c
 		on la.case_id = c.case_id 
+	join omnidesk."groups" g 
+	 	on g.group_id = c.group_id and g.group_title not similar to '%%M1%%|%%М1%%'
 	left join omnidesk.labels l
  		on c.labels like '%%' || l.label_id || '%%'
 	where lower(la."action") like '%%ответственный%%'
@@ -160,6 +162,7 @@ triggers_sla as (
     and lower(l.label_title) similar to '%дз тл п%|%прогул тл п%|%group transfer%|%new payments%|%flm%'
     and c.parent_case_id = 0 and c.channel <> 'call'
     and c.status = 'closed'
+	and c.created_at >= '2022-05-01'
 ),
 docherki_sla as (
 	select 
@@ -170,10 +173,13 @@ docherki_sla as (
 		c.created_at + interval '3 hours' as created_time,
 		datediff(second, created_time, closed_time) as full_sla_docherki
 	from omnidesk.cases c
+	join omnidesk."groups" g 
+	 	on g.group_id = c.group_id and g.group_title not similar to '%%M1%%|%%М1%%'
 	left join omnidesk.labels l
  		on c.labels like '%%' || l.label_id || '%%'
  	where (lower(l.label_title) not similar to '%дз тл п%|%прогул тл п%|%group transfer%|%new payments%|%flm%' or c.labels = '')
-    and c.parent_case_id <> 0
+    and c.created_at >= '2022-05-01'
+	and c.parent_case_id <> 0
     and c.status = 'closed'  
 ),
 sla_frt_cases as (
@@ -192,6 +198,7 @@ sla_frt_cases as (
 	join omnidesk."groups" g 
 	 	on g.group_id = c.group_id and g.group_title not similar to '%%M1%%|%%М1%%'
 	where c.staff_id > 0 and c.status = 'closed' and c.deleted = false and c.spam = false
+	and c.created_at >= '2022-05-01'
 	group by 1,2,3,4,5,6
 	order by 1
 )
@@ -216,6 +223,7 @@ join (
  left join omnidesk.labels l 
  	on sfc.labels like '%%' || l.label_id || '%%'
 where lower(l.label_title) not similar to '%дз тл п%|%прогул тл п%|%group transfer%|%new payments%|%flm%' or sfc.labels = ''
+and sfc.sla_chats >= 0 
 group by 1,2,3,4
 union 
 select 
@@ -244,7 +252,7 @@ join (
 		select pddc.full_name, pddc."group", pddc.corporate_email, pddc.department, pddc.first_date
 		from forms.personal_data_dismissed_cs pddc 
 	) pd
-	on pd.corporate_email like '%%' || trs.staff_id || '%%'  and trs.staff_id > 0
+	on pd.corporate_email like '%%' || trs.staff_id || '%%' and trs.staff_id > 0
 left join omnidesk.labels l 
 	on trs.labels like '%%' || l.label_id || '%%'
 where trigger_type notnull
