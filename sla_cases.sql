@@ -1,4 +1,16 @@
-with client_messages as (
+with 
+triggers_labels as (
+	select 
+		l.label_id,
+		rank() over (order by label_id) as label_rank
+	from omnidesk.labels l
+	where lower(l.label_title) like '%%дз тл п%%'
+	   or lower(l.label_title) like '%%прогул тл п%%'
+	   or lower(l.label_title) like '%%group transfer%%' 
+	   or lower(l.label_title) like '%%new payments%%' 
+	   or lower(l.label_title) like '%%flm%%'
+),
+client_messages as (
     select 
         message_id ,
         created_at + interval '3 hours' as created_at,
@@ -152,12 +164,34 @@ triggers_sla as (
 	from omnidesk.lenta_active la
 	join omnidesk.cases c
 		on la.case_id = c.case_id 
-	left join omnidesk.labels l
- 		on c.labels like '%%' || l.label_id || '%%'
 	where lower(la."action") like '%%ответственный%%'
     and lower(la."change") not like '%%- неизвестный%%' 
     and la."timestamp" < closed_time
-    and lower(l.label_title) similar to '%%дз тл п%%|%%прогул тл п%%|%%group transfer%%|%%new payments%%|%%flm%%'
+    and (  c.labels like '%%' || (select 
+    			tl.label_id
+    		 from triggers_labels tl
+    		 where tl.label_rank = 1
+    		 ) || '%%'
+    	or c.labels like '%%' || (select 
+    			tl.label_id
+    		 from triggers_labels tl
+    		 where tl.label_rank = 2
+    		 ) || '%%'
+    	or c.labels like '%%' || (select 
+    			tl.label_id
+    		 from triggers_labels tl
+    		 where tl.label_rank = 3
+    		 ) || '%%'
+    	or c.labels like '%%' || (select 
+    			tl.label_id
+    		 from triggers_labels tl
+    		 where tl.label_rank = 4
+    		 ) || '%%'
+    	or c.labels like '%%' || (select 
+    			tl.label_id
+    		 from triggers_labels tl
+    		 where tl.label_rank = 5
+    		 ) || '%%')
     and c.parent_case_id = 0 and c.channel <> 'call'
     and c.status = 'closed'
 ),
@@ -172,11 +206,32 @@ docherki_sla as (
 	from omnidesk.cases c
 	left join omnidesk.labels l
  		on c.labels like '%%' || l.label_id || '%%'
- 	where ((lower(l.label_title) not like '%%дз тл п%%'
-	   and lower(l.label_title) not like '%%прогул тл п%%'
-	   and lower(l.label_title) not like '%%group transfer%%' 
-	   and lower(l.label_title) not like '%%new payments%%' 
-	   and lower(l.label_title) not like '%%flm%%') or c.labels = '')
+ 	where (( c.labels not like '%%' || (select 
+    			tl.label_id
+    		 from triggers_labels tl
+    		 where tl.label_rank = 1
+    		 ) || '%%'
+    		and c.labels not like '%%' || (select 
+    			tl.label_id
+    		 from triggers_labels tl
+    		 where tl.label_rank = 2
+    		 ) || '%%'
+    		and c.labels not like '%%' || (select 
+    			tl.label_id
+    		 from triggers_labels tl
+    		 where tl.label_rank = 3
+    		 ) || '%%'
+    		and c.labels not like '%%' || (select 
+    			tl.label_id
+    		 from triggers_labels tl
+    		 where tl.label_rank = 4
+    		 ) || '%%'
+    		and c.labels not like '%%' || (select 
+    			tl.label_id
+    		 from triggers_labels tl
+    		 where tl.label_rank = 5
+    		 ) || '%%')
+ 	    	or c.labels = '')
     and c.parent_case_id <> 0
     and c.status = 'closed'  
 ),
@@ -220,11 +275,32 @@ join (
 	on pd.corporate_email like '%%' || sfc.staff_id || '%%'
  left join omnidesk.labels l 
  	on sfc.labels like '%%' || l.label_id || '%%'
-where (lower(l.label_title) not like '%%дз тл п%%'
-	   and lower(l.label_title) not like '%%прогул тл п%%'
-	   and lower(l.label_title) not like '%%group transfer%%' 
-	   and lower(l.label_title) not like '%%new payments%%' 
-	   and lower(l.label_title) not like '%%flm%%') or sfc.labels = ''
+where ((		sfc.labels not like '%%' || (select 
+    			tl.label_id
+    		 from triggers_labels tl
+    		 where tl.label_rank = 1
+    		 ) || '%%'
+    		and sfc.labels not like '%%' || (select 
+    			tl.label_id
+    		 from triggers_labels tl
+    		 where tl.label_rank = 2
+    		 ) || '%%'
+    		and sfc.labels not like '%%' || (select 
+    			tl.label_id
+    		 from triggers_labels tl
+    		 where tl.label_rank = 3
+    		 ) || '%%'
+    		and sfc.labels not like '%%' || (select 
+    			tl.label_id
+    		 from triggers_labels tl
+    		 where tl.label_rank = 4
+    		 ) || '%%'
+    		and sfc.labels not like '%%' || (select 
+    			tl.label_id
+    		 from triggers_labels tl
+    		 where tl.label_rank = 5
+    		 ) || '%%')
+	   or sfc.labels = '')
 union 
 select 
 	distinct
