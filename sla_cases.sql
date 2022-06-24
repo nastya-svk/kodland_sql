@@ -90,7 +90,6 @@ lenta_active_staff_response as (
 select  
 	distinct
     m.staff_id, 
-    la."change",
     la.case_id,
     m.created_at as created_at,
     case 
@@ -107,7 +106,7 @@ where
     m.created_at > la."timestamp" 
     and m.message_type = 'reply_staff'
     and m.created_at >= '2022-01-01'
-group by 1,2,3,4
+group by 1,2,3
 ),
 chats_sla as (
 select 
@@ -353,9 +352,19 @@ join (
 	on pd.corporate_email like '%%' || ds.staff_id || '%%'
 )
 select 
-	ac.*,
+	ac.closed_day,
+	date_part("week", ac.closed_day) as week,
+	date_part("weekday", ac.closed_day) as weekday,
+	date_part("month", ac.closed_day) as month, 	
+	ac.staff_id,
+	ac.case_id,
+	ac.case_type,
+	ac.trigger_type,
+	ac.sla_minutes,
+	ac.full_sla_minutes,
 	'https://support.kodland.org/staff/cases/chat/' || c.case_number as omni_link,
 	pd.full_name as last_responsible,
+	pd.group as group_staff,
 	pd.department,
 	case when c.channel = 'cch17' then 'whatsapp' else c.channel end as channel,
 	listagg(distinct coalesce(l.label_title,''), ', ') as labels
@@ -373,4 +382,5 @@ join (
  left join omnidesk.labels l 
  	on c.labels like '%%' || l.label_id || '%%'
  where c.closed_at >= '2022-05-01'
- group by 1,2,3,4,5,6,7,8,9,10,11
+ and c.created_at >= '2022-05-01'
+ group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15

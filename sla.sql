@@ -90,7 +90,6 @@ lenta_active_staff_response as (
 select  
 	distinct
     m.staff_id, 
-    la."change",
     la.case_id,
     m.created_at as created_at,
     case 
@@ -107,7 +106,7 @@ where
     m.created_at > la."timestamp" 
     and m.message_type = 'reply_staff'
     and m.created_at >= '2022-01-01'
-group by 1,2,3,4
+group by 1,2,3
 ),
 chats_sla as (
 select 
@@ -253,8 +252,8 @@ sla_frt_cases as (
 	where c.staff_id > 0 and c.status = 'closed' and c.deleted = false and c.spam = false
 	group by 1,2,3,4,5,6
 	order by 1
-),
-all_cases as (
+)/*,
+all_cases as (*/
 select 
 	distinct
 	sfc.closed_at::date as closed_day,
@@ -351,6 +350,8 @@ join (
 		from forms.personal_data_dismissed_cs pddc 
 	) pd
 	on pd.corporate_email like '%%' || ds.staff_id || '%%'
+	
+	
 )
 select 
 	ac.closed_day,
@@ -363,5 +364,6 @@ select
 from all_cases ac
 join omnidesk.cases c
 	on c.case_id = ac.case_id and c.created_at >= '2022-05-01'
-where closed_day >= '2022-05-01'
+where closed_day >= '2022-06-01'
+and ac.staff_id = 28771
 group by 1,2,3,4

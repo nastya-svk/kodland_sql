@@ -42,6 +42,7 @@ first_client_message as (
 ),
 first_staff_message as (
     select 
+    	distinct
         sm.case_id, 
         fsm.created_at,
         sm.staff_id
@@ -55,6 +56,7 @@ first_staff_message as (
     	 ) fsm
     	on sm.case_id = fsm.case_id and sm.created_at = fsm.created_at
     where sm.created_at >= '2022-01-01'
+    and sm.case_id = 207827817
 ),
 distinct_messages as (
 select 
@@ -98,7 +100,6 @@ lenta_active_staff_response as (
 select  
 	distinct
     m.staff_id, 
-    la."change",
     la.case_id,
     m.created_at as created_at,
     case 
@@ -115,7 +116,7 @@ where
     m.created_at > la."timestamp" 
     and m.message_type = 'reply_staff'
     and m.created_at >= '2022-04-01'
-group by 1,2,3,4
+group by 1,2,3
 ),
 staff_case_sla as (
 select 
@@ -123,7 +124,7 @@ select
     ms.case_id,
     ms.created_at,
     ms.message_type,
-    --ms.staff_id,
+    ms.staff_id,
     case when ms.message_type = 'reply_staff'
         then 
             case when datediff(second, isnull(lag(ms.created_at) over (partition by ms.case_id order by ms.created_at), ms.created_at), ms.created_at) < 0
@@ -154,6 +155,12 @@ left join lenta_active_staff las
 left join lenta_active_staff_response lasr
     on lasr.created_at = ms.created_at and lasr.case_id = ms.case_id 
 ),
+scs_without_doubles as (
+select 
+	scs.*,
+	row_number() over (partition by scs.message_type, scs.created_at order by scs.created_at, scs.min_sla desc) as rank_doubles
+from staff_case_sla scs
+),
 min_frt as (
 	select
 		distinct 
@@ -162,10 +169,11 @@ min_frt as (
 		scs.created_at,
 		min_sla as frt,
 		scs.sla_by_message as full_frt
-	from staff_case_sla scs
+	from scs_without_doubles scs
 	join first_staff_message fsm 
     	on scs.case_id = fsm.case_id and fsm.created_at = scs.created_at
 	where scs.message_type = 'reply_staff'
+	and scs.rank_doubles = 1 
 ),
 sla_frt_cases as (
 	select
@@ -189,10 +197,16 @@ sla_frt_cases as (
 select 
 	sfc.closed_at::date as closed_day,
     frt_staff_id,
-	sum(sfc.frt_minutes) as frt_minutes,
-	sum(sfc.full_frt_minutes) as full_frt_minutes,
-	count(distinct sfc.case_id) as tasks_frt,
-	'chats' as case_type
+    sfc.case_id,
+	'chats' as case_type,
+	sfc.frt_minutes as frt_minutes,
+	sfc.full_frt_minutes as full_frt_minutes,
+	'https://support.kodland.org/staff/cases/chat/' || c.case_number as omni_link,
+	pd.full_name as first_staff,
+	pd."group" as group_staff,
+	pd.department,
+	case when c.channel = 'cch17' then 'whatsapp' else c.channel end as channel,
+	listagg(distinct coalesce(l.label_title,''), ', ') as labels
 from sla_frt_cases sfc 
 join omnidesk.cases c
 	on c.case_id = sfc.case_id
@@ -231,7 +245,6 @@ where (c.labels not like '%%' || (select
     		 from triggers_labels tl
     		 where tl.label_rank = 5
     		 ) || '%%')
-    	and c.parent_case_id = 0 and c.channel <> 'call'
-		and c.created_at >= '2022-05-01'
---and frt_staff_id = 39340 and closed_day = '2022-06-11'
-group by 1,2
+and c.parent_case_id = 0 and c.channel <> 'call'
+and c.created_at >= '2022-05-01'
+group by 1,2,3,4,5,6,7,8,9,10,11
