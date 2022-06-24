@@ -4,8 +4,8 @@ triggers_labels as (
 		l.label_id,
 		rank() over (order by label_id) as label_rank
 	from omnidesk.labels l
-	where lower(l.label_title) like '%%РґР· С‚Р» Рї%%'
-	   or lower(l.label_title) like '%%РїСЂРѕРіСѓР» С‚Р» Рї%%'
+	where lower(l.label_title) like '%%дз тл п%%'
+	   or lower(l.label_title) like '%%прогул тл п%%'
 	   or lower(l.label_title) like '%%group transfer%%' 
 	   or lower(l.label_title) like '%%new payments%%' 
 	   or lower(l.label_title) like '%%flm%%'
@@ -81,7 +81,7 @@ from distinct_messages m
 join omnidesk.lenta_active la
     on m.staff_id = la.staff_id 
 where 
-    lower(la."action") like '%%РЅР° Р»РёРЅРёРё%%' 
+    lower(la."action") like '%%на линии%%' 
     and m.created_at > la."timestamp" 
     and m.message_type = 'reply_staff'
 group by 1,2,3
@@ -100,8 +100,8 @@ select
 from distinct_messages m
 left join omnidesk.lenta_active la
     on m.case_id = la.case_id 
-    and lower(la."action") like '%%РѕС‚РІРµС‚СЃС‚РІРµРЅРЅС‹Р№%%'
-    and lower(la."change") not like '%%- РЅРµРёР·РІРµСЃС‚РЅС‹Р№%%' 
+    and lower(la."action") like '%%ответственный%%'
+    and lower(la."change") not like '%%- неизвестный%%' 
 where 
     m.created_at > la."timestamp" 
     and m.message_type = 'reply_staff'
@@ -125,6 +125,16 @@ select
             end
         else 0
     end as sla_by_message,
+    case when ms.message_type = 'reply_staff'
+        then 
+            case when datediff(second, isnull(lag(ms.created_at) over (partition by ms.case_id order by ms.created_at), c.created_at), ms.created_at) < 0
+            		  or extract(year from ms.created_at) - extract(year from isnull(lag(ms.created_at) over (partition by ms.case_id order by c.created_at), ms.created_at)) <> 0
+                then
+                    0
+                else datediff(second, isnull(lag(ms.created_at) over (partition by ms.case_id order by ms.created_at), c.created_at), ms.created_at)
+            end
+        else 0
+    end as sla_by_message_from_creating,
     /*case when ms.message_type = 'reply_user'
         then 
             case when datediff(second, isnull(lag(ms.created_at) over (partition by ms.case_id order by ms.created_at), ms.created_at), ms.created_at) < 0
@@ -139,7 +149,8 @@ select
     coalesce(lasr.sla_by_response, 0) as sla_by_response,
     case when sla_by_message <= sla_by_last_online or ms.staff_id = 0 then sla_by_message else sla_by_last_online end as pre_min_sla,
     case when ms.staff_id = lasr.staff_id and pre_min_sla > sla_by_response then sla_by_response else pre_min_sla end as sla_chats,
-    datediff(second, c.created_at, c.closed_at) as full_sla_chats
+    case when sla_by_message_from_creating <= sla_by_last_online or ms.staff_id = 0 then sla_by_message_from_creating else sla_by_last_online end as pre_min_sla2,
+    case when ms.staff_id = lasr.staff_id and pre_min_sla2 > sla_by_response then sla_by_response else pre_min_sla2 end as sla_chats_from_creating
 from distinct_messages ms
 join omnidesk.cases c
 	on c.case_id = ms.case_id
@@ -163,8 +174,8 @@ triggers_sla as (
 	from omnidesk.lenta_active la
 	join omnidesk.cases c
 		on la.case_id = c.case_id 
-	where lower(la."action") like '%%РѕС‚РІРµС‚СЃС‚РІРµРЅРЅС‹Р№%%'
-    and lower(la."change") not like '%%- РЅРµРёР·РІРµСЃС‚РЅС‹Р№%%' 
+	where lower(la."action") like '%%ответственный%%'
+    and lower(la."change") not like '%%- неизвестный%%' 
     and la."timestamp" < closed_time
     and (  c.labels like '%%' || (select 
     			tl.label_id
@@ -242,18 +253,19 @@ sla_frt_cases as (
 		c.user_id,
 		c.staff_id,
 		c.labels ,
-		round(cs.full_sla_chats::float/60,2) as full_sla_chats,
-		round(sum(cs.sla_chats)::float/60,2) as sla_chats
+		round(datediff(second, c.created_at, c.closed_at)::float/60,2) as full_sla_chats,
+		round(sum(cs.sla_chats)::float/60,2) as sla_chats,
+		round(sum(cs.sla_chats_from_creating)::float/60,2) as sla_chats_from_creating 
 	from omnidesk.cases c
 	join chats_sla cs
 		on c.case_id = cs.case_id
 	join omnidesk."groups" g 
-	 	on g.group_id = c.group_id and g.group_title not similar to '%%M1%%|%%Рњ1%%'
+	 	on g.group_id = c.group_id and g.group_title not similar to '%%M1%%|%%М1%%'
 	where c.staff_id > 0 and c.status = 'closed' and c.deleted = false and c.spam = false
 	group by 1,2,3,4,5,6
 	order by 1
-)/*,
-all_cases as (*/
+),
+all_cases as (
 select 
 	distinct
 	sfc.closed_at::date as closed_day,
@@ -308,10 +320,10 @@ select
 	trs.case_id,
 	'Triggers' as case_type,
 	case 
-		when lower(l.label_title) like '%%РґР· С‚Р» Рї%%' or lower(l.label_title) like '%%РїСЂРѕРіСѓР» С‚Р» Рї%%' 
-			then 'РЈС‡РµРЅРёРєРѕРј Р±С‹Р» РїСЂРѕРїСѓС‰РµРЅ СѓСЂРѕРє'
+		when lower(l.label_title) like '%%дз тл п%%' or lower(l.label_title) like '%%прогул тл п%%' 
+			then 'Учеником был пропущен урок'
 		when lower(l.label_title) like '%%group transfer%%' 
-			then 'РџРµСЂРµРІРѕРґ РіСЂСѓРїРїС‹/1-1 РЅР° СЃР»РµРґСѓСЋС‰РёР№ РєСѓСЂСЃ ****'
+			then 'Перевод группы/1-1 на следующий курс ****'
 		when lower(l.label_title) like '%%new payments%%' 
 			then 'New case from new payments'
 		when lower(l.label_title) like '%%flm%%' 
@@ -350,8 +362,6 @@ join (
 		from forms.personal_data_dismissed_cs pddc 
 	) pd
 	on pd.corporate_email like '%%' || ds.staff_id || '%%'
-	
-	
 )
 select 
 	ac.closed_day,
@@ -364,6 +374,5 @@ select
 from all_cases ac
 join omnidesk.cases c
 	on c.case_id = ac.case_id and c.created_at >= '2022-05-01'
-where closed_day >= '2022-06-01'
-and ac.staff_id = 28771
+where closed_day >= '2022-05-01'
 group by 1,2,3,4
