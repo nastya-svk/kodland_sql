@@ -211,8 +211,6 @@ join (
 		from forms.personal_data_dismissed_cs pddc 
 	) pd
 	on pd.corporate_email like '%%' || frt_staff_id || '%%' and frt_staff_id > 0
- left join omnidesk.labels l 
- 	on c.labels like '%%' || l.label_id || '%%'
 where (c.labels not like '%%' || (select 
     			tl.label_id
     		 from triggers_labels tl
