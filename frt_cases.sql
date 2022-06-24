@@ -42,6 +42,7 @@ first_client_message as (
 ),
 first_staff_message as (
     select 
+    	distinct
         sm.case_id, 
         fsm.created_at,
         sm.staff_id
@@ -98,7 +99,6 @@ lenta_active_staff_response as (
 select  
 	distinct
     m.staff_id, 
-    la."change",
     la.case_id,
     m.created_at as created_at,
     case 
@@ -115,7 +115,7 @@ where
     m.created_at > la."timestamp" 
     and m.message_type = 'reply_staff'
     and m.created_at >= '2022-04-01'
-group by 1,2,3,4
+group by 1,2,3
 ),
 staff_case_sla as (
 select 
