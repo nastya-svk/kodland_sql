@@ -154,6 +154,12 @@ left join lenta_active_staff las
 left join lenta_active_staff_response lasr
     on lasr.created_at = ms.created_at and lasr.case_id = ms.case_id 
 ),
+scs_without_doubles as (
+select 
+	scs.*,
+	row_number() over (partition by scs.message_type, scs.created_at order by scs.created_at, scs.min_sla desc) as rank_doubles
+from staff_case_sla scs
+),
 min_frt as (
 	select
 		distinct 
@@ -162,10 +168,11 @@ min_frt as (
 		scs.created_at,
 		min_sla as frt,
 		scs.sla_by_message as full_frt
-	from staff_case_sla scs
+	from scs_without_doubles scs
 	join first_staff_message fsm 
     	on scs.case_id = fsm.case_id and fsm.created_at = scs.created_at
 	where scs.message_type = 'reply_staff'
+	and scs.rank_doubles = 1 
 ),
 sla_frt_cases as (
 	select
