@@ -123,7 +123,7 @@ select
     ms.case_id,
     ms.created_at,
     ms.message_type,
-    ms.staff_id,
+    --ms.staff_id,
     case when ms.message_type = 'reply_staff'
         then 
             case when datediff(second, isnull(lag(ms.created_at) over (partition by ms.case_id order by ms.created_at), ms.created_at), ms.created_at) < 0
@@ -196,16 +196,10 @@ sla_frt_cases as (
 select 
 	sfc.closed_at::date as closed_day,
     frt_staff_id,
-    sfc.case_id,
-	'chats' as case_type,
-	sfc.frt_minutes as frt_minutes,
-	sfc.full_frt_minutes as full_frt_minutes,
-	'https://support.kodland.org/staff/cases/chat/' || c.case_number as omni_link,
-	pd.full_name as first_staff,
-	pd."group" as group_staff,
-	pd.department,
-	case when c.channel = 'cch17' then 'whatsapp' else c.channel end as channel,
-	listagg(distinct coalesce(l.label_title,''), ', ') as labels
+	sum(sfc.frt_minutes) as frt_minutes,
+	sum(sfc.full_frt_minutes) as full_frt_minutes,
+	count(distinct sfc.case_id) as tasks_frt,
+	'chats' as case_type
 from sla_frt_cases sfc 
 join omnidesk.cases c
 	on c.case_id = sfc.case_id
@@ -244,6 +238,7 @@ where (c.labels not like '%%' || (select
     		 from triggers_labels tl
     		 where tl.label_rank = 5
     		 ) || '%%')
-and c.parent_case_id = 0 and c.channel <> 'call'
-and c.created_at >= '2022-05-01'
-group by 1,2,3,4,5,6,7,8,9,10,11
+    	and c.parent_case_id = 0 and c.channel <> 'call'
+		and c.created_at >= '2022-05-01'
+--and frt_staff_id = 39340 and closed_day = '2022-06-11'
+group by 1,2
