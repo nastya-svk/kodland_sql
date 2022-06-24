@@ -134,6 +134,16 @@ select
             end
         else 0
     end as sla_by_message,
+    case when ms.message_type = 'reply_staff'
+        then 
+            case when datediff(second, isnull(lag(ms.created_at) over (partition by ms.case_id order by ms.created_at), c.created_at), ms.created_at) < 0
+            		  or extract(year from ms.created_at) - extract(year from isnull(lag(ms.created_at) over (partition by ms.case_id order by c.created_at), ms.created_at)) <> 0
+                then
+                    0
+                else datediff(second, isnull(lag(ms.created_at) over (partition by ms.case_id order by ms.created_at), c.created_at), ms.created_at)
+            end
+        else 0
+    end as sla_by_message_from_creating,
     /*case when ms.message_type = 'reply_user'
         then 
             case when datediff(second, isnull(lag(ms.created_at) over (partition by ms.case_id order by ms.created_at), ms.created_at), ms.created_at) < 0
@@ -147,7 +157,9 @@ select
     coalesce(las.sla_by_last_online, 0) as sla_by_last_online,
     coalesce(lasr.sla_by_response, 0) as sla_by_response,
     case when sla_by_message <= sla_by_last_online or ms.staff_id = 0 then sla_by_message else sla_by_last_online end as pre_min_sla,
-    case when ms.staff_id = lasr.staff_id and pre_min_sla > sla_by_response then sla_by_response else pre_min_sla end as sla_chats
+    case when ms.staff_id = lasr.staff_id and pre_min_sla > sla_by_response then sla_by_response else pre_min_sla end as sla_chats,
+    case when sla_by_message_from_creating <= sla_by_last_online or ms.staff_id = 0 then sla_by_message_from_creating else sla_by_last_online end as pre_min_sla2,
+    case when ms.staff_id = lasr.staff_id and pre_min_sla2 > sla_by_response then sla_by_response else pre_min_sla2 end as sla_chats_from_creating
 from distinct_messages ms
 join omnidesk.cases c
 	on c.case_id = ms.case_id
@@ -271,7 +283,8 @@ select
 	'chats' as case_type,
 	'' as trigger_type,
 	sfc.sla_chats as sla_minutes,
-	sfc.full_sla_chats as full_sla_minutes
+	sfc.full_sla_chats as full_sla_minutes,
+	sfc.sla_chats_from_creating
 from sla_cases sfc 
 join (
 		select pdac.full_name, pdac."group", pdac.corporate_email, pdac.department, pdac.first_date
@@ -327,7 +340,8 @@ select
 			then 'First lesson missed'
 	end as trigger_type,
 	round(trs.sla_triggers::float/60,2) as sla_minutes,
-	round(trs.full_sla_triggers::float/60,2) as full_sla_minutes
+	round(trs.full_sla_triggers::float/60,2) as full_sla_minutes,
+	null::float as sla_chats_from_creating
 from triggers_sla trs
 join (
 		select pdac.full_name, pdac."group", pdac.corporate_email, pdac.department, pdac.first_date
@@ -349,7 +363,8 @@ select
 	'docherki' as case_type,
 	'' as trigger_type,
 	null::float as sla_docherki,
-	round(ds.full_sla_docherki::float/60,2) as full_sla_minutes
+	round(ds.full_sla_docherki::float/60,2) as full_sla_minutes,
+	null::float as sla_chats_from_creating
 from docherki_sla ds
 join (
 		select pdac.full_name, pdac."group", pdac.corporate_email, pdac.department, pdac.first_date
@@ -366,12 +381,13 @@ sla_cases_final as (
 		date_part("week", ac.closed_day) as week,
 		date_part("weekday", ac.closed_day) as weekday,
 		date_part("month", ac.closed_day) as month, 	
-		ac.staff_id,
+		ac.staff_id as sla_staff_id,
 		ac.case_id,
 		ac.case_type,
 		ac.trigger_type,
 		ac.sla_minutes,
 		ac.full_sla_minutes,
+		ac.sla_chats_from_creating,
 		'https://support.kodland.org/staff/cases/chat/' || c.case_number as omni_link,
 		pd.full_name as last_responsible,
 		pd.group as group_staff,
@@ -393,50 +409,13 @@ sla_cases_final as (
 	 	on c.labels like '%%' || l.label_id || '%%'
 	 where c.closed_at >= '2022-05-01'
 	 and c.created_at >= '2022-05-01'
-	 group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
-),
-staff_case_sla as (
-select 
-	distinct
-    ms.case_id,
-    ms.created_at,
-    ms.message_type,
-    ms.staff_id,
-    case when ms.message_type = 'reply_staff'
-        then 
-            case when datediff(second, isnull(lag(ms.created_at) over (partition by ms.case_id order by ms.created_at), ms.created_at), ms.created_at) < 0
-            		  or extract(year from ms.created_at) - extract(year from isnull(lag(ms.created_at) over (partition by ms.case_id order by ms.created_at), ms.created_at)) <> 0
-                then
-                    0
-                else datediff(second, isnull(lag(ms.created_at) over (partition by ms.case_id order by ms.created_at), ms.created_at), ms.created_at)
-            end
-        else 0
-    end as sla_by_message,
-    /*case when ms.message_type = 'reply_user'
-        then 
-            case when datediff(second, isnull(lag(ms.created_at) over (partition by ms.case_id order by ms.created_at), ms.created_at), ms.created_at) < 0
-            		  or extract(year from ms.created_at) - extract(year from isnull(lag(ms.created_at) over (partition by ms.case_id order by ms.created_at), ms.created_at)) <> 0
-                then
-                    0
-                else datediff(second, isnull(lag(ms.created_at) over (partition by ms.case_id order by ms.created_at), ms.created_at), ms.created_at)
-            end
-        else 0
-    end as min_waiting,*/
-    coalesce(las.sla_by_last_online, 0) as sla_by_last_online,
-    coalesce(lasr.sla_by_response, 0) as sla_by_response,
-    case when sla_by_message <= sla_by_last_online or ms.staff_id = 0 then sla_by_message else sla_by_last_online end as pre_min_sla,
-    case when ms.staff_id = lasr.staff_id and pre_min_sla > sla_by_response then sla_by_response else pre_min_sla end as min_sla
-from distinct_messages ms
-left join lenta_active_staff las
-    on las.staff_id = ms.staff_id and las.created_at = ms.created_at
-left join lenta_active_staff_response lasr
-    on lasr.created_at = ms.created_at and lasr.case_id = ms.case_id 
+	 group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16
 ),
 scs_without_doubles as (
 select 
 	scs.*,
-	row_number() over (partition by scs.message_type, scs.created_at order by scs.created_at, scs.min_sla desc) as rank_doubles
-from staff_case_sla scs
+	row_number() over (partition by scs.message_type, scs.created_at order by scs.created_at, scs.sla_chats desc) as rank_doubles
+from chats_sla scs
 ),
 min_frt as (
 	select
@@ -444,7 +423,7 @@ min_frt as (
 		fsm.staff_id as frt_staff_id,
 		scs.case_id ,
 		scs.created_at,
-		min_sla as frt,
+		sla_chats as frt,
 		scs.sla_by_message as full_frt
 	from scs_without_doubles scs
 	join first_staff_message fsm 
@@ -540,12 +519,13 @@ select
 	scf.trigger_type,
 	scf.sla_minutes,
 	scf.full_sla_minutes,
-	fcf.frt_minutes,
-	fcf.full_frt_minutes,
-	scf.sla_staff_id,
+	scf.sla_chats_from_creating,
 	scf.last_responsible as sla_staff_name,
 	scf.group_staff as sla_staff_group,
 	scf.department as sla_staff_department,
+	fcf.frt_minutes,
+	fcf.full_frt_minutes,
+	scf.sla_staff_id,
 	fcf.frt_staff_id,
 	fcf.first_staff as frt_staff_name,
 	fcf.group_staff as frt_staff_group, 
