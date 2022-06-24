@@ -230,7 +230,8 @@ where (c.labels not like '%%' || (select
     			tl.label_id
     		 from triggers_labels tl
     		 where tl.label_rank = 5
-    		 ) || '%%')and c.parent_case_id = 0 and c.channel <> 'call'
+    		 ) || '%%')
+    	and c.parent_case_id = 0 and c.channel <> 'call'
 		and c.created_at >= '2022-05-01'
 --and frt_staff_id = 39340 and closed_day = '2022-06-11'
 group by 1,2
