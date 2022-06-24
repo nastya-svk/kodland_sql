@@ -1,16 +1,4 @@
-with 
-triggers_labels as (
-	select 
-		l.label_id,
-		rank() over (order by label_id) as label_rank
-	from omnidesk.labels l
-	where lower(l.label_title) like '%%дз тл п%%'
-	   or lower(l.label_title) like '%%прогул тл п%%'
-	   or lower(l.label_title) like '%%group transfer%%' 
-	   or lower(l.label_title) like '%%new payments%%' 
-	   or lower(l.label_title) like '%%flm%%'
-),
-client_messages as (
+with client_messages as (
     select 
         message_id ,
         created_at + interval '3 hours' as created_at,
@@ -206,31 +194,8 @@ join (
 	on pd.corporate_email like '%%' || frt_staff_id || '%%' and frt_staff_id > 0
  left join omnidesk.labels l 
  	on c.labels like '%%' || l.label_id || '%%'
-where (c.labels not like '%%' || (select 
-    			tl.label_id
-    		 from triggers_labels tl
-    		 where tl.label_rank = 1
-    		 ) || '%%'
-    		and c.labels not like '%%' || (select 
-    			tl.label_id
-    		 from triggers_labels tl
-    		 where tl.label_rank = 2
-    		 ) || '%%'
-    		and c.labels not like '%%' || (select 
-    			tl.label_id
-    		 from triggers_labels tl
-    		 where tl.label_rank = 3
-    		 ) || '%%'
-    		and c.labels not like '%%' || (select 
-    			tl.label_id
-    		 from triggers_labels tl
-    		 where tl.label_rank = 4
-    		 ) || '%%'
-    		and c.labels not like '%%' || (select 
-    			tl.label_id
-    		 from triggers_labels tl
-    		 where tl.label_rank = 5
-    		 ) || '%%')and c.parent_case_id = 0 and c.channel <> 'call'
-		and c.created_at >= '2022-05-01'
+where lower(l.label_title) not similar to '%отток мвп%|%дз тл п%|%прогул тл п%|%group transfer%|%new payments%|%flm%'
+and c.parent_case_id = 0 and c.channel <> 'call'
+and c.created_at >= '2022-05-01'
 --and frt_staff_id = 39340 and closed_day = '2022-06-11'
 group by 1,2
