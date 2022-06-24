@@ -56,7 +56,6 @@ first_staff_message as (
     	 ) fsm
     	on sm.case_id = fsm.case_id and sm.created_at = fsm.created_at
     where sm.created_at >= '2022-01-01'
-    and sm.case_id = 207827817
 ),
 distinct_messages as (
 select 
