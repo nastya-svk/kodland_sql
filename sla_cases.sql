@@ -107,8 +107,8 @@ where
     and m.message_type = 'reply_staff'
     and m.created_at >= '2022-01-01'
 group by 1,2,3
-),
-chats_sla as (
+)/*,
+chats_sla as (*/
 select 
 	distinct
     ms.case_id,
@@ -148,6 +148,9 @@ left join lenta_active_staff las
 left join lenta_active_staff_response lasr
     on lasr.created_at = ms.created_at and lasr.case_id = ms.case_id 
 where c.parent_case_id = 0 and c.channel <> 'call'
+and c.case_id = 207141708
+
+
     ),
 triggers_sla as (
 	select 

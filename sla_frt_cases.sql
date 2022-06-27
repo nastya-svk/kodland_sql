@@ -136,11 +136,11 @@ select
     end as sla_by_message,
     case when ms.message_type = 'reply_staff'
         then 
-            case when datediff(second, isnull(lag(ms.created_at) over (partition by ms.case_id order by ms.created_at), c.created_at), ms.created_at) < 0
-            		  or extract(year from ms.created_at) - extract(year from isnull(lag(ms.created_at) over (partition by ms.case_id order by c.created_at), ms.created_at)) <> 0
+            case when datediff(second, isnull(lag(ms.created_at) over (partition by ms.case_id order by ms.created_at), c.created_at + interval '3 hours'), ms.created_at) < 0
+            		  or extract(year from ms.created_at) - extract(year from isnull(lag(ms.created_at) over (partition by ms.case_id order by c.created_at + interval '3 hours'), ms.created_at)) <> 0
                 then
                     0
-                else datediff(second, isnull(lag(ms.created_at) over (partition by ms.case_id order by ms.created_at), c.created_at), ms.created_at)
+                else datediff(second, isnull(lag(ms.created_at) over (partition by ms.case_id order by ms.created_at), c.created_at + interval '3 hours'), ms.created_at)
             end
         else 0
     end as sla_by_message_from_creating,
@@ -186,7 +186,7 @@ triggers_sla as (
 	where lower(la."action") like '%%ответственный%%'
     and lower(la."change") not like '%%- неизвестный%%' 
     and la."timestamp" < closed_time
-    and (  c.labels like '%%' || (select 
+    and (c.labels like '%%' || (select 
     			tl.label_id
     		 from triggers_labels tl
     		 where tl.label_rank = 1
@@ -210,7 +210,7 @@ triggers_sla as (
     			tl.label_id
     		 from triggers_labels tl
     		 where tl.label_rank = 5
-    		 ) || '%%')
+    		 ) || '%%' or c.channel = 'web')
     and c.parent_case_id = 0 and c.channel <> 'call'
     and c.status = 'closed'
 ),
@@ -253,6 +253,7 @@ docherki_sla as (
  	    	or c.labels = '')
     and c.parent_case_id <> 0
     and c.status = 'closed'  
+    and c.channel <> 'web'
 ),
 sla_cases as (
 	select
@@ -262,6 +263,7 @@ sla_cases as (
 		c.user_id,
 		c.staff_id,
 		c.labels ,
+		c.channel ,
 		round(datediff(second, c.created_at, c.closed_at)::float/60,2) as full_sla_chats,
 		round(sum(cs.sla_chats)::float/60,2) as sla_chats,
 		round(sum(sla_chats_from_creating)::float/60,2) as sla_chats_from_creating 
@@ -271,7 +273,7 @@ sla_cases as (
 	join omnidesk."groups" g 
 	 	on g.group_id = c.group_id and g.group_title not similar to '%%M1%%|%%М1%%'
 	where c.staff_id > 0 and c.status = 'closed' and c.deleted = false and c.spam = false
-	group by 1,2,3,4,5,6
+	group by 1,2,3,4,5,6,7
 	order by 1
 ),
 all_cases as (
@@ -321,7 +323,7 @@ where ((		sfc.labels not like '%%' || (select
     		 from triggers_labels tl
     		 where tl.label_rank = 5
     		 ) || '%%')
-	   or sfc.labels = '')
+	   or sfc.labels = '') and sfc.channel <> 'web'
 union 
 select 
 	distinct
@@ -502,7 +504,7 @@ frt_cases_final as (
 	    		 from triggers_labels tl
 	    		 where tl.label_rank = 5
 	    		 ) || '%%')
-	and c.parent_case_id = 0 and c.channel <> 'call'
+	and c.parent_case_id = 0 and c.channel <> 'call' and c.channel <> 'web'
 	and c.created_at >= '2022-05-01'
 	group by 1,2,3,4,5,6,7,8,9,10,11
 )
