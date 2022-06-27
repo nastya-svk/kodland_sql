@@ -6,6 +6,7 @@ select
 	c.case_id,
 	g.group_title as ticket_group,
 	'https://support.kodland.org/staff/cases/chat/' || c.case_number as omni_link,
+	pd.full_name as last_resposible,
 	pd.group as responsible_staff_group
 from omnidesk.messages m 
 join omnidesk.cases c 
@@ -13,12 +14,13 @@ join omnidesk.cases c
 left join (
 			select pdac.full_name, pdac."group", pdac.corporate_email, pdac.department, pdac.first_date
 			from forms.personal_data_active_cs pdac 
+			where pdac.corporate_email > 0
 				union
 			select pddc.full_name, pddc."group", pddc.corporate_email, pddc.department, pddc.first_date
 			from forms.personal_data_dismissed_cs pddc 
+			where pddc.corporate_email > 0
 		) pd
-		on pd.corporate_email like '%%' || c.staff_id || '%%'
+		on pd.corporate_email like '%%' || c.staff_id || '%%' and c.staff_id > 0
 left join omnidesk."groups" g 
 	on g.group_id = c.group_id
 where lower(m.content_html) like '%%mch-cs-go%%' and c.status = 'closed'
-order by 1
