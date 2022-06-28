@@ -107,8 +107,8 @@ where
     and m.message_type = 'reply_staff'
     and m.created_at >= '2022-01-01'
 group by 1,2,3
-)/*,
-chats_sla as (*/
+),
+chats_sla as (
 select 
 	distinct
     ms.case_id,
@@ -159,8 +159,6 @@ left join lenta_active_staff las
 left join lenta_active_staff_response lasr
     on lasr.created_at = ms.created_at and lasr.case_id = ms.case_id 
 where c.parent_case_id = 0 and c.channel <> 'call'
-and c.case_id = 207141708
-
     ),
 triggers_sla as (
 	select 
@@ -203,7 +201,7 @@ triggers_sla as (
     			tl.label_id
     		 from triggers_labels tl
     		 where tl.label_rank = 5
-    		 ) || '%%')
+    		 ) || '%%' or c.channel = 'web')
     and c.parent_case_id = 0 and c.channel <> 'call'
     and c.status = 'closed'
 ),
@@ -243,7 +241,7 @@ docherki_sla as (
     		 from triggers_labels tl
     		 where tl.label_rank = 5
     		 ) || '%%')
- 	    	or c.labels = '')
+ 	    	or c.labels = '') and c.channel <> 'web'
     and c.parent_case_id <> 0
     and c.status = 'closed'  
 ),
@@ -255,6 +253,7 @@ sla_frt_cases as (
 		c.user_id,
 		c.staff_id,
 		c.labels ,
+		c.channel,
 		round(datediff(second, c.created_at, c.closed_at)::float/60,2) as full_sla_chats,
 		round(sum(cs.sla_chats)::float/60,2) as sla_chats,
 		round(sum(cs.sla_chats_from_creating)::float/60,2) as sla_chats_from_creating 
@@ -264,7 +263,7 @@ sla_frt_cases as (
 	join omnidesk."groups" g 
 	 	on g.group_id = c.group_id and g.group_title not similar to '%%M1%%|%%Ì1%%'
 	where c.staff_id > 0 and c.status = 'closed' and c.deleted = false and c.spam = false
-	group by 1,2,3,4,5,6
+	group by 1,2,3,4,5,6,7
 	order by 1
 ),
 all_cases as (
@@ -313,7 +312,7 @@ where ((		sfc.labels not like '%%' || (select
     		 from triggers_labels tl
     		 where tl.label_rank = 5
     		 ) || '%%')
-	   or sfc.labels = '')
+	   or sfc.labels = '') and sfc.channel <> 'web'
 union 
 select 
 	distinct
