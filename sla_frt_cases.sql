@@ -267,7 +267,7 @@ docherki_sla as (
 sla_cases as (
 	select
 		distinct
-		c.closed_at,
+		c.closed_at + interval '3 hours' as closed_at,
 		c.case_id,
 		c.user_id,
 		c.staff_id,
@@ -446,7 +446,7 @@ min_frt as (
 frt_cases as (
 	select
 		distinct
-		c.closed_at,
+		c.closed_at + interval '3 hours' as closed_at,
 		c.case_id,
 		c.user_id,
 		c.staff_id,
