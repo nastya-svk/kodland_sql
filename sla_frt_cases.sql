@@ -134,16 +134,6 @@ select
             end
         else 0
     end as sla_by_message,
-    case when ms.message_type = 'reply_staff'
-        then 
-            case when datediff(second, isnull(lag(ms.created_at) over (partition by ms.case_id order by ms.created_at), c.created_at + interval '3 hours'), ms.created_at) < 0
-            		  or extract(year from ms.created_at) - extract(year from isnull(lag(ms.created_at) over (partition by ms.case_id order by c.created_at + interval '3 hours'), ms.created_at)) <> 0
-                then
-                    0
-                else datediff(second, isnull(lag(ms.created_at) over (partition by ms.case_id order by ms.created_at), c.created_at + interval '3 hours'), ms.created_at)
-            end
-        else 0
-    end as sla_by_message_from_creating,
     /*case when ms.message_type = 'reply_user'
         then 
             case when datediff(second, isnull(lag(ms.created_at) over (partition by ms.case_id order by ms.created_at), ms.created_at), ms.created_at) < 0
@@ -156,10 +146,27 @@ select
     end as min_waiting,*/
     coalesce(las.sla_by_last_online, 0) as sla_by_last_online,
     coalesce(lasr.sla_by_response, 0) as sla_by_response,
+    case 
+    	when extract(hour from ms.created_at) < 8
+    	then ms.created_at::date - interval '16 hours'
+    	else ms.created_at::date + interval '8 hours'
+    end as last_8am,
+    datediff(second, last_8am, ms.created_at) as sla_by_last_8am,
     case when sla_by_message <= sla_by_last_online or ms.staff_id = 0 then sla_by_message else sla_by_last_online end as pre_min_sla,
     case when ms.staff_id = lasr.staff_id and pre_min_sla > sla_by_response then sla_by_response else pre_min_sla end as sla_chats,
-    case when sla_by_message_from_creating <= sla_by_last_online or ms.staff_id = 0 then sla_by_message_from_creating else sla_by_last_online end as pre_min_sla2,
-    case when ms.staff_id = lasr.staff_id and pre_min_sla2 > sla_by_response then sla_by_response else pre_min_sla2 end as sla_chats_from_creating
+    case 
+    	when fsm.created_at notnull 
+    		then 
+    			sla_by_message
+    		else 
+    			case 
+    				when sla_by_message <= sla_by_last_online or ms.staff_id = 0 
+    					then sla_by_message 
+    					else sla_by_last_online
+    			end
+    end as pre_min_sla2,
+    case when ms.staff_id = lasr.staff_id and pre_min_sla2 > sla_by_response and fsm.created_at is null then sla_by_response else pre_min_sla2 end as sla_chats_from_creating,
+    case when sla_by_message <= sla_by_last_8am or ms.staff_id = 0 then sla_by_message else sla_by_last_8am end as pre_min_sla_8am
 from distinct_messages ms
 join omnidesk.cases c
 	on c.case_id = ms.case_id
@@ -167,8 +174,10 @@ left join lenta_active_staff las
     on las.staff_id = ms.staff_id and las.created_at = ms.created_at
 left join lenta_active_staff_response lasr
     on lasr.created_at = ms.created_at and lasr.case_id = ms.case_id 
+left join first_staff_message fsm 
+	on fsm.case_id = c.case_id and fsm.created_at = ms.created_at
 where c.parent_case_id = 0 and c.channel <> 'call'
-    ),
+),
 triggers_sla as (
 	select 
 		distinct
@@ -355,7 +364,6 @@ join (
 	on pd.corporate_email like '%%' || trs.staff_id || '%%'
 left join omnidesk.labels l 
 	on trs.labels like '%%' || l.label_id || '%%'
-where trigger_type notnull
 union 
 select 
 	distinct
@@ -426,6 +434,8 @@ min_frt as (
 		scs.case_id ,
 		scs.created_at,
 		sla_chats as frt,
+		pre_min_sla as full_worktime_frt,
+		pre_min_sla_8am as full_8am_frt,
 		scs.sla_by_message as full_frt
 	from scs_without_doubles scs
 	join first_staff_message fsm 
@@ -442,6 +452,8 @@ frt_cases as (
 		c.staff_id,
         mf.frt_staff_id,
 		round(mf.frt::float/60,2) as frt_minutes,
+		round(mf.full_worktime_frt::float/60,2) as full_worktime_frt,
+		round(mf.full_8am_frt::float/60,2) as full_8am_frt,
 		round(mf.full_frt::float/60,2) as full_frt_minutes
 	from omnidesk.cases c
 	 left join min_frt mf 
@@ -459,6 +471,8 @@ frt_cases_final as (
 	    sfc.case_id,
 		'chats' as case_type,
 		sfc.frt_minutes as frt_minutes,
+		sfc.full_worktime_frt as full_worktime_frt,
+		sfc.full_8am_frt as full_8am_frt,
 		sfc.full_frt_minutes as full_frt_minutes,
 		'https://support.kodland.org/staff/cases/chat/' || c.case_number as omni_link,
 		pd.full_name as first_staff,
@@ -506,7 +520,7 @@ frt_cases_final as (
 	    		 ) || '%%')
 	and c.parent_case_id = 0 and c.channel <> 'call' and c.channel <> 'web'
 	and c.created_at >= '2022-05-01'
-	group by 1,2,3,4,5,6,7,8,9,10,11
+	group by 1,2,3,4,5,6,7,8,9,10,11,12,13
 )
 select 
 	coalesce(scf.closed_day, fcf.closed_day) as closed_day,
@@ -526,6 +540,8 @@ select
 	scf.group_staff as sla_staff_group,
 	scf.department as sla_staff_department,
 	fcf.frt_minutes,
+	fcf.full_worktime_frt,
+	fcf.full_8am_frt,
 	fcf.full_frt_minutes,
 	scf.sla_staff_id,
 	fcf.frt_staff_id,
