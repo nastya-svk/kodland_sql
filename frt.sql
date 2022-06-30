@@ -146,8 +146,15 @@ select
     end as min_waiting,*/
     coalesce(las.sla_by_last_online, 0) as sla_by_last_online,
     coalesce(lasr.sla_by_response, 0) as sla_by_response,
+    case 
+    	when extract(hour from ms.created_at) < 8
+    	then ms.created_at::date - interval '16 hours'
+    	else ms.created_at::date + interval '8 hours'
+    end as last_8am,
+    datediff(second, last_8am, ms.created_at) as sla_by_last_8am,
     case when sla_by_message <= sla_by_last_online or ms.staff_id = 0 then sla_by_message else sla_by_last_online end as pre_min_sla,
-    case when ms.staff_id = lasr.staff_id and pre_min_sla > sla_by_response then sla_by_response else pre_min_sla end as min_sla
+    case when ms.staff_id = lasr.staff_id and pre_min_sla > sla_by_response then sla_by_response else pre_min_sla end as min_sla,
+    case when sla_by_message <= sla_by_last_8am or ms.staff_id = 0 then sla_by_message else sla_by_last_8am end as pre_min_sla_8am
 from distinct_messages ms
 left join lenta_active_staff las
     on las.staff_id = ms.staff_id and las.created_at = ms.created_at
@@ -167,6 +174,8 @@ min_frt as (
 		scs.case_id ,
 		scs.created_at,
 		min_sla as frt,
+		pre_min_sla as full_worktime_frt,
+		pre_min_sla_8am as full_8am_frt,
 		scs.sla_by_message as full_frt
 	from scs_without_doubles scs
 	join first_staff_message fsm 
@@ -177,12 +186,14 @@ min_frt as (
 sla_frt_cases as (
 	select
 		distinct
-		c.closed_at,
+		c.closed_at + interval '3 hours' as closed_at,
 		c.case_id,
 		c.user_id,
 		c.staff_id,
         mf.frt_staff_id,
 		round(mf.frt::float/60,2) as frt_minutes,
+		round(mf.full_worktime_frt::float/60,2) as full_worktime_frt,
+		round(mf.full_8am_frt::float/60,2) as full_8am_frt,
 		round(mf.full_frt::float/60,2) as full_frt_minutes
 	from omnidesk.cases c
 	 left join min_frt mf 
@@ -197,6 +208,8 @@ select
 	sfc.closed_at::date as closed_day,
     frt_staff_id,
 	sum(sfc.frt_minutes) as frt_minutes,
+	sum(sfc.full_worktime_frt) as full_worktime_frt_minutes,
+	sum(sfc.full_8am_frt) as full_8am_frt_minutes,
 	sum(sfc.full_frt_minutes) as full_frt_minutes,
 	count(distinct sfc.case_id) as tasks_frt,
 	'chats' as case_type
@@ -238,5 +251,6 @@ where (c.labels not like '%%' || (select
     		 ) || '%%')
     	and c.parent_case_id = 0 and c.channel <> 'call'
 		and c.created_at >= '2022-05-01'
+        and c.channel <> 'web'
 --and frt_staff_id = 39340 and closed_day = '2022-06-11'
 group by 1,2

@@ -288,7 +288,7 @@ sla_cases as (
 all_cases as (
 select 
 	distinct
-	sfc.closed_at::date as closed_day,
+	sfc.closed_at,
 	sfc.staff_id,
 	sfc.case_id,
 	'chats' as case_type,
@@ -336,7 +336,7 @@ where ((		sfc.labels not like '%%' || (select
 union 
 select 
 	distinct
-	trs.closed_time::date as closed_day,
+	trs.closed_time,
 	trs.staff_id,
 	trs.case_id,
 	'triggers' as case_type,
@@ -367,7 +367,7 @@ left join omnidesk.labels l
 union 
 select 
 	distinct
-	ds.closed_time::date as closed_day,
+	ds.closed_time,
 	ds.staff_id,
 	ds.case_id,
 	'docherki' as case_type,
@@ -387,10 +387,10 @@ join (
 ),
 sla_cases_final as (
 	select 
-		ac.closed_day,
-		date_part("week", ac.closed_day) as week,
-		date_part("weekday", ac.closed_day) as weekday,
-		date_part("month", ac.closed_day) as month, 	
+		ac.closed_at,
+		date_part("week", ac.closed_at) as week,
+		date_part("weekday", ac.closed_at) as weekday,
+		date_part("month", ac.closed_at) as month, 	
 		ac.staff_id as sla_staff_id,
 		ac.case_id,
 		ac.case_type,
@@ -466,7 +466,7 @@ frt_cases as (
 ),
 frt_cases_final as (
 	select 
-		sfc.closed_at::date as closed_day,
+		sfc.closed_at,
 	    frt_staff_id,
 	    sfc.case_id,
 		'chats' as case_type,
@@ -523,16 +523,20 @@ frt_cases_final as (
 	group by 1,2,3,4,5,6,7,8,9,10,11,12,13
 )
 select 
-	coalesce(scf.closed_day, fcf.closed_day) as closed_day,
-	date_part("week", coalesce(scf.closed_day, fcf.closed_day)) as week,
-	date_part("weekday", coalesce(scf.closed_day, fcf.closed_day)) as weekday,
-	date_part("month", coalesce(scf.closed_day, fcf.closed_day)) as month,
+	coalesce(scf.closed_at, fcf.closed_at)::date as closed_day,
+	date_part("hour", coalesce(scf.closed_at, fcf.closed_at)) as hour,
+	date_part("week", coalesce(scf.closed_at, fcf.closed_at)) as week,
+	date_part("weekday", coalesce(scf.closed_at, fcf.closed_at)) as weekday,
+	date_part("month", coalesce(scf.closed_at, fcf.closed_at)) as month,
 	coalesce(scf.case_id, fcf.case_id) as case_id,
 	coalesce(scf.case_type, fcf.case_type) as case_type,
 	coalesce(scf.omni_link, fcf.omni_link) as omni_link,
 	coalesce(scf.channel, fcf.channel) as channel,
 	coalesce(scf.labels, fcf.labels) as labels,
 	scf.trigger_type,
+	json_extract_path_text(cf_form.field_data, json_extract_path_text(replace(c.custom_fields,'''','"'), 'cf_' || '4475')) as case_form,
+	json_extract_path_text(cf_reason.field_data, json_extract_path_text(replace(c.custom_fields,'''','"'), 'cf_' || '4476')) as case_reason,
+	json_extract_path_text(cf_result.field_data, json_extract_path_text(replace(c.custom_fields,'''','"'), 'cf_' || '4756')) as case_result,
 	scf.sla_minutes,
 	scf.full_sla_minutes,
 	scf.sla_chats_from_creating,
@@ -551,3 +555,11 @@ select
 from sla_cases_final scf
 full join frt_cases_final fcf
 	on scf.case_id = fcf.case_id
+join omnidesk.cases c
+	on coalesce(scf.case_id, fcf.case_id) = c.case_id 
+left join omnidesk.custom_fields cf_reason
+	on cf_reason.field_id = 4476
+left join omnidesk.custom_fields cf_form
+	on cf_form.field_id = 4475
+left join omnidesk.custom_fields cf_result
+	on cf_result.field_id = 4756

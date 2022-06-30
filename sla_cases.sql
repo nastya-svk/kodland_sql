@@ -42,11 +42,19 @@ first_client_message as (
 ),
 first_staff_message as (
     select 
+    	distinct
         sm.case_id, 
-        min(sm.created_at) as created_at
+        fsm.created_at
     from staff_messages sm 
-    where sm.created_at >= '2022-01-01'
-    group by 1
+    join (
+    		select 
+    			sm.case_id, 
+        		min(sm.created_at) as created_at
+    		from staff_messages sm
+    		group by 1
+    	 ) fsm
+    	on sm.case_id = fsm.case_id and sm.created_at = fsm.created_at
+    where sm.created_at >= '2022-04-01'
 ),
 distinct_messages as (
 select 
@@ -107,8 +115,8 @@ where
     and m.message_type = 'reply_staff'
     and m.created_at >= '2022-01-01'
 group by 1,2,3
-)/*,
-chats_sla as (*/
+),
+chats_sla as (
 select 
 	distinct
     ms.case_id,
@@ -139,7 +147,18 @@ select
     coalesce(lasr.sla_by_response, 0) as sla_by_response,
     case when sla_by_message <= sla_by_last_online or ms.staff_id = 0 then sla_by_message else sla_by_last_online end as pre_min_sla,
     case when ms.staff_id = lasr.staff_id and pre_min_sla > sla_by_response then sla_by_response else pre_min_sla end as sla_chats,
-    datediff(second, c.created_at, c.closed_at) as full_sla_chats
+    case 
+    	when fsm.created_at notnull 
+    		then 
+    			sla_by_message
+    		else 
+    			case 
+    				when sla_by_message <= sla_by_last_online or ms.staff_id = 0 
+    					then sla_by_message 
+    					else sla_by_last_online
+    			end
+    end as pre_min_sla2,
+    case when ms.staff_id = lasr.staff_id and pre_min_sla2 > sla_by_response and fsm.created_at is null then sla_by_response else pre_min_sla2 end as sla_chats_from_creating
 from distinct_messages ms
 join omnidesk.cases c
 	on c.case_id = ms.case_id
@@ -147,11 +166,10 @@ left join lenta_active_staff las
     on las.staff_id = ms.staff_id and las.created_at = ms.created_at
 left join lenta_active_staff_response lasr
     on lasr.created_at = ms.created_at and lasr.case_id = ms.case_id 
+left join first_staff_message fsm 
+	on fsm.case_id = c.case_id and fsm.created_at = ms.created_at
 where c.parent_case_id = 0 and c.channel <> 'call'
-and c.case_id = 207141708
-
-
-    ),
+),
 triggers_sla as (
 	select 
 		distinct
@@ -193,7 +211,7 @@ triggers_sla as (
     			tl.label_id
     		 from triggers_labels tl
     		 where tl.label_rank = 5
-    		 ) || '%%')
+    		 ) || '%%' or c.channel = 'web')
     and c.parent_case_id = 0 and c.channel <> 'call'
     and c.status = 'closed'
 ),
@@ -233,7 +251,7 @@ docherki_sla as (
     		 from triggers_labels tl
     		 where tl.label_rank = 5
     		 ) || '%%')
- 	    	or c.labels = '')
+ 	    	or c.labels = '') and c.channel <> 'web'
     and c.parent_case_id <> 0
     and c.status = 'closed'  
 ),
@@ -245,15 +263,17 @@ sla_frt_cases as (
 		c.user_id,
 		c.staff_id,
 		c.labels ,
-		round(cs.full_sla_chats::float/60,2) as full_sla_chats,
-		round(sum(cs.sla_chats)::float/60,2) as sla_chats
+		c.channel,
+		round(datediff(second, c.created_at, c.closed_at)::float/60,2) as full_sla_chats,
+		round(sum(cs.sla_chats)::float/60,2) as sla_chats,
+		round(sum(cs.sla_chats_from_creating)::float/60,2) as sla_chats_from_creating 
 	from omnidesk.cases c
 	join chats_sla cs
 		on c.case_id = cs.case_id
 	join omnidesk."groups" g 
 	 	on g.group_id = c.group_id and g.group_title not similar to '%%M1%%|%%М1%%'
 	where c.staff_id > 0 and c.status = 'closed' and c.deleted = false and c.spam = false
-	group by 1,2,3,4,5,6
+	group by 1,2,3,4,5,6,7
 	order by 1
 ),
 all_cases as (
@@ -262,7 +282,7 @@ select
 	sfc.closed_at::date as closed_day,
 	sfc.staff_id,
 	sfc.case_id,
-	'chats' as case_type,
+	'Chats' as case_type,
 	'' as trigger_type,
 	sfc.sla_chats as sla_minutes,
 	sfc.full_sla_chats as full_sla_minutes
@@ -302,14 +322,14 @@ where ((		sfc.labels not like '%%' || (select
     		 from triggers_labels tl
     		 where tl.label_rank = 5
     		 ) || '%%')
-	   or sfc.labels = '')
+	   or sfc.labels = '') and sfc.channel <> 'web'
 union 
 select 
 	distinct
 	trs.closed_time::date as closed_day,
 	trs.staff_id,
 	trs.case_id,
-	'triggers' as case_type,
+	'Triggers' as case_type,
 	case 
 		when lower(l.label_title) like '%%дз тл п%%' or lower(l.label_title) like '%%прогул тл п%%' 
 			then 'Учеником был пропущен урок'
@@ -333,16 +353,15 @@ join (
 	on pd.corporate_email like '%%' || trs.staff_id || '%%'
 left join omnidesk.labels l 
 	on trs.labels like '%%' || l.label_id || '%%'
-where trigger_type notnull
 union 
 select 
 	distinct
 	ds.closed_time::date as closed_day,
 	ds.staff_id,
 	ds.case_id,
-	'docherki' as case_type,
+	'Child Tickets' as case_type,
 	'' as trigger_type,
-	null::float as sla_docherki,
+	null::float as sla_minutes,
 	round(ds.full_sla_docherki::float/60,2) as full_sla_minutes
 from docherki_sla ds
 join (
@@ -356,34 +375,14 @@ join (
 )
 select 
 	ac.closed_day,
-	date_part("week", ac.closed_day) as week,
-	date_part("weekday", ac.closed_day) as weekday,
-	date_part("month", ac.closed_day) as month, 	
 	ac.staff_id,
-	ac.case_id,
 	ac.case_type,
 	ac.trigger_type,
-	ac.sla_minutes,
-	ac.full_sla_minutes,
-	'https://support.kodland.org/staff/cases/chat/' || c.case_number as omni_link,
-	pd.full_name as last_responsible,
-	pd.group as group_staff,
-	pd.department,
-	case when c.channel = 'cch17' then 'whatsapp' else c.channel end as channel,
-	listagg(distinct coalesce(l.label_title,''), ', ') as labels
+	sum(ac.sla_minutes) as sla_minutes,
+	sum(ac.full_sla_minutes) as full_sla_minutes,
+	count(distinct ac.case_id) as tasks_sla
 from all_cases ac
-join omnidesk.cases c 
-	on c.case_id = ac.case_id
-join (
-		select pdac.full_name, pdac."group", pdac.corporate_email, pdac.department, pdac.first_date
-		from forms.personal_data_active_cs pdac 
-			union
-		select pddc.full_name, pddc."group", pddc.corporate_email, pddc.department, pddc.first_date
-		from forms.personal_data_dismissed_cs pddc 
-	) pd
-	on pd.corporate_email like '%%' || c.staff_id || '%%' and c.staff_id > 0
- left join omnidesk.labels l 
- 	on c.labels like '%%' || l.label_id || '%%'
- where c.closed_at >= '2022-05-01'
- and c.created_at >= '2022-05-01'
- group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+join omnidesk.cases c
+	on c.case_id = ac.case_id and c.created_at >= '2022-05-01'
+where closed_day >= '2022-05-01'
+group by 1,2,3,4
