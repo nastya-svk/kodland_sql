@@ -125,16 +125,6 @@ select
             end
         else 0
     end as sla_by_message,
-    case when ms.message_type = 'reply_staff'
-        then 
-            case when datediff(second, isnull(lag(ms.created_at) over (partition by ms.case_id order by ms.created_at), c.created_at), ms.created_at) < 0
-            		  or extract(year from ms.created_at) - extract(year from isnull(lag(ms.created_at) over (partition by ms.case_id order by c.created_at), ms.created_at)) <> 0
-                then
-                    0
-                else datediff(second, isnull(lag(ms.created_at) over (partition by ms.case_id order by ms.created_at), c.created_at), ms.created_at)
-            end
-        else 0
-    end as sla_by_message_from_creating,
     /*case when ms.message_type = 'reply_user'
         then 
             case when datediff(second, isnull(lag(ms.created_at) over (partition by ms.case_id order by ms.created_at), ms.created_at), ms.created_at) < 0
@@ -149,8 +139,18 @@ select
     coalesce(lasr.sla_by_response, 0) as sla_by_response,
     case when sla_by_message <= sla_by_last_online or ms.staff_id = 0 then sla_by_message else sla_by_last_online end as pre_min_sla,
     case when ms.staff_id = lasr.staff_id and pre_min_sla > sla_by_response then sla_by_response else pre_min_sla end as sla_chats,
-    case when sla_by_message_from_creating <= sla_by_last_online or ms.staff_id = 0 then sla_by_message_from_creating else sla_by_last_online end as pre_min_sla2,
-    case when ms.staff_id = lasr.staff_id and pre_min_sla2 > sla_by_response then sla_by_response else pre_min_sla2 end as sla_chats_from_creating
+    case 
+    	when fsm.created_at notnull 
+    		then 
+    			sla_by_message
+    		else 
+    			case 
+    				when sla_by_message <= sla_by_last_online or ms.staff_id = 0 
+    					then sla_by_message 
+    					else sla_by_last_online
+    			end
+    end as pre_min_sla2,
+    case when ms.staff_id = lasr.staff_id and pre_min_sla2 > sla_by_response and fsm.created_at is null then sla_by_response else pre_min_sla2 end as sla_chats_from_creating
 from distinct_messages ms
 join omnidesk.cases c
 	on c.case_id = ms.case_id
@@ -158,8 +158,10 @@ left join lenta_active_staff las
     on las.staff_id = ms.staff_id and las.created_at = ms.created_at
 left join lenta_active_staff_response lasr
     on lasr.created_at = ms.created_at and lasr.case_id = ms.case_id 
+left join first_staff_message fsm 
+	on fsm.case_id = c.case_id and fsm.created_at = ms.created_at
 where c.parent_case_id = 0 and c.channel <> 'call'
-    ),
+),
 triggers_sla as (
 	select 
 		distinct
@@ -275,7 +277,8 @@ select
 	'Chats' as case_type,
 	'' as trigger_type,
 	sfc.sla_chats as sla_minutes,
-	sfc.full_sla_chats as full_sla_minutes
+	sfc.full_sla_chats as full_sla_minutes,
+	sfc.sla_chats_from_creating as sla_chats_from_creating
 from sla_frt_cases sfc 
 join (
 		select pdac.full_name, pdac."group", pdac.corporate_email, pdac.department, pdac.first_date
@@ -331,7 +334,8 @@ select
 			then 'First lesson missed'
 	end as trigger_type,
 	round(trs.sla_triggers::float/60,2) as sla_minutes,
-	round(trs.full_sla_triggers::float/60,2) as full_sla_minutes
+	round(trs.full_sla_triggers::float/60,2) as full_sla_minutes,
+	null::float as sla_chats_from_creating
 from triggers_sla trs
 join (
 		select pdac.full_name, pdac."group", pdac.corporate_email, pdac.department, pdac.first_date
@@ -343,7 +347,6 @@ join (
 	on pd.corporate_email like '%%' || trs.staff_id || '%%'
 left join omnidesk.labels l 
 	on trs.labels like '%%' || l.label_id || '%%'
-where trigger_type notnull
 union 
 select 
 	distinct
@@ -353,7 +356,8 @@ select
 	'Child Tickets' as case_type,
 	'' as trigger_type,
 	null::float as sla_minutes,
-	round(ds.full_sla_docherki::float/60,2) as full_sla_minutes
+	round(ds.full_sla_docherki::float/60,2) as full_sla_minutes,
+	null::float as sla_chats_from_creating
 from docherki_sla ds
 join (
 		select pdac.full_name, pdac."group", pdac.corporate_email, pdac.department, pdac.first_date
@@ -371,6 +375,7 @@ select
 	ac.trigger_type,
 	sum(ac.sla_minutes) as sla_minutes,
 	sum(ac.full_sla_minutes) as full_sla_minutes,
+	sum(ac.sla_chats_from_creating) as sla_chats_from_creating,
 	count(distinct ac.case_id) as tasks_sla
 from all_cases ac
 join omnidesk.cases c
