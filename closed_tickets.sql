@@ -68,17 +68,95 @@ with main as (
         where mm.staff_id > 0
         --and prev_time notnull
         --group by staff_id, mm.closed_at, mm.case_id, group_id
-    )
+    ),
+    all_failed_cases as (
+	select 
+		distinct
+		c.created_at + interval '3 hours' as created_at,
+		c.closed_at + interval '3 hours'as closed_at,
+		datediff(hour, c.created_at, c.closed_at) as closing_hours,
+		c.case_id,
+		'https://support.kodland.org/staff/cases/chat/' || c.case_number as omni_link,
+		g.group_title as ticket_group,
+		c.staff_id as last_responsible_id,
+		pd.group as responsible_staff_group,
+		'' as mch_staff_id,
+		'Case without responsible MCH' as case_type
+	from omnidesk.messages m 
+	join omnidesk.cases c 
+		on m.case_id = c.case_id 
+	join omnidesk.labels l
+		on c.labels like '%92169%'
+	left join (
+				select pdac.full_name, pdac."group", pdac.corporate_email, pdac.department, pdac.first_date
+				from forms.personal_data_active_cs pdac 
+				where pdac.corporate_email > 0
+					union
+				select pddc.full_name, pddc."group", pddc.corporate_email, pddc.department, pddc.first_date
+				from forms.personal_data_dismissed_cs pddc 
+				where pddc.corporate_email > 0
+			) pd
+			on pd.corporate_email like '%%' || c.staff_id || '%%' and c.staff_id > 0
+	left join omnidesk."groups" g 
+		on g.group_id = c.group_id
+	where c.status = 'closed'
+	union
+	select 
+		distinct
+		c.created_at + interval '3 hours' as created_at,
+		c.closed_at + interval '3 hours'as closed_at,
+		datediff(hour, c.created_at, c.closed_at) as closing_hours,
+		c.case_id,
+		'https://support.kodland.org/staff/cases/chat/' || c.case_number as omni_link,
+		g.group_title as ticket_group,
+		c.staff_id as last_responsible_id,
+		pd.group as responsible_staff_group,
+		split_part(m.content_html, ' ', 2) as mch_staff_id,
+		'Case without reply from responsible MCH' as case_type
+	from omnidesk.messages m 
+	join omnidesk.cases c 
+		on m.case_id = c.case_id 
+	left join omnidesk.labels l
+		on c.labels like '%92168%'
+	left join (
+				select pdac.full_name, pdac."group", pdac.corporate_email, pdac.department, pdac.first_date
+				from forms.personal_data_active_cs pdac 
+				where pdac.corporate_email > 0
+					union
+				select pddc.full_name, pddc."group", pddc.corporate_email, pddc.department, pddc.first_date
+				from forms.personal_data_dismissed_cs pddc 
+				where pddc.corporate_email > 0
+			) pd
+			on pd.corporate_email like '%%' || c.staff_id || '%%' and c.staff_id > 0
+	left join (
+				select pdac.full_name, pdac."group", pdac.corporate_email, pdac.department, pdac.first_date
+				from forms.personal_data_active_cs pdac 
+				where pdac.corporate_email > 0
+					union
+				select pddc.full_name, pddc."group", pddc.corporate_email, pddc.department, pddc.first_date
+				from forms.personal_data_dismissed_cs pddc 
+				where pddc.corporate_email > 0
+			) pd_mch
+			on pd_mch.corporate_email like '%%' || split_part(m.content_html, ' ', 2) || '%%' and split_part(m.content_html, ' ', 2) <> ''
+	left join omnidesk."groups" g 
+		on g.group_id = c.group_id
+	where c.status = 'closed' and lower(m.content_html) like '%%mch-cs-go-2%%' and c.status = 'closed'
+	order by 1
+	)
     select
         d.*,
-        d.closed_at::date as closed_day
+        d.closed_at::date as closed_day,
+        afc.case_id as failed_case_id
     from datas d
+    left join all_failed_cases afc 
+    	on d.case_id = afc.case_id
 )
 select
     m.closed_day, 
     m.staff_id as staff_id_real,
     pd.corporate_email as staff_id,
-    count(distinct m.user_id) as tasks
+    count(distinct m.user_id) as tasks,
+    count(distinct m.failed_case_id) as failed_tickets
 from main m
 left join (
 	select pdac.full_name, pdac."group", pdac.corporate_email, pdac.department, pdac.first_date, null as dismissal_date
@@ -98,7 +176,8 @@ select
     m.closed_day, 
     m.staff_id as staff_id_real,
     pd.corporate_email as staff_id,
-    count(distinct m.user_id) as tasks
+    count(distinct m.user_id) as tasks,
+    count(distinct m.failed_case_id) as failed_tickets
 from main m
 left join (
 	select pdac.full_name, pdac."group", pdac.corporate_email, pdac.department, pdac.first_date
