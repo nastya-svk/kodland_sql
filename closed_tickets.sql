@@ -149,7 +149,7 @@ with main as (
         afc.case_id as failed_case_id
     from datas d
     left join all_failed_cases afc 
-    	on d.case_id = afc.case_id
+    	on d.case_id = afc.case_id and d.staff_id = afc.last_responsible_id
 )
 select
     m.closed_day, 
@@ -180,13 +180,13 @@ select
     count(distinct m.failed_case_id) as failed_tickets
 from main m
 left join (
-	select pdac.full_name, pdac."group", pdac.corporate_email, pdac.department, pdac.first_date
+	select pdac.full_name, pdac."group", pdac.corporate_email, pdac.department, pdac.first_date, null as dismissal_date
 	from forms.personal_data_active_cs pdac 
 		union
-	select pddc.full_name, pddc."group", pddc.corporate_email, pddc.department, pddc.first_date
-	from forms.personal_data_dismissed_cs pddc 
+	select pddc.full_name, pddc."group", pddc.corporate_email, pddc.department, pddc.first_date, pddc.dismissal_date
+	from forms.personal_data_dismissed_cs pddc
 ) pd
-on pd.corporate_email like '%%' || m.staff_id || '%%'
+on pd.corporate_email like '%%' || m.staff_id || '%%' and (pd.dismissal_date >= m.closed_day or pd.dismissal_date is null)
 left join omnidesk."groups" g 
 	on g.group_id = m.group_id
 where g.group_title not similar to '%M1%|%Ì1%' and closed_day >= pd.first_date
