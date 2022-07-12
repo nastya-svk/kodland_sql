@@ -57,6 +57,38 @@ first_staff_message as (
     	on sm.case_id = fsm.case_id and sm.created_at = fsm.created_at
     where sm.created_at >= '2022-04-01'
 ),
+/*distinct_messages_pre as (
+select 
+	distinct
+	m.message_id,
+	m.created_at + interval '3 hours' as created_at,
+    m.case_id,
+    m.message_type,
+    m.staff_id,
+    case 
+    	when m.message_type = 'reply_user' 
+    	     and (lag(m.message_type) over (partition by m.case_id order by m.created_at) <> 'reply_user'
+    	     	  or lag(m.message_type) over (partition by m.case_id order by m.created_at) isnull)
+    	then 1
+    	else 0
+    end as is_last_user_reply
+from omnidesk.messages m
+join omnidesk.cases c
+	on m.case_id = c.case_id 
+where 
+    message_type not like '%%note%%' 
+    and message_type <> ''
+    and m.created_at >= '2022-01-01'
+    and c.labels not like '%%87475%%' and c.labels not like '%%89906%%'
+    and m.sent_via_rule = false
+),
+distinct_messages as (
+select 
+	*
+from distinct_messages_pre dmp 
+where (dmp.is_last_user_reply = 1 or dmp.message_type = 'reply_staff')
+--and dmp.case_id = 214901187
+),*/
 distinct_messages as (
 select 
 	distinct
@@ -69,7 +101,6 @@ from omnidesk.messages m
 join omnidesk.cases c
 	on m.case_id = c.case_id 
 where 
-	--m.case_id = 204592180 and --temp
     message_type not like '%%note%%' 
     and message_type <> ''
     and m.created_at >= '2022-01-01'
@@ -394,7 +425,6 @@ sla_cases_final as (
 		ac.staff_id as sla_staff_id,
 		ac.case_id,
 		ac.case_type,
-		ac.trigger_type,
 		ac.sla_minutes,
 		ac.full_sla_minutes,
 		ac.sla_chats_from_creating,
@@ -403,6 +433,7 @@ sla_cases_final as (
 		pd.group as group_staff,
 		pd.department,
 		case when c.channel = 'cch17' then 'whatsapp' else c.channel end as channel,
+		listagg(distinct coalesce(ac.trigger_type,''), ', ') as labels,
 		listagg(distinct coalesce(l.label_title,''), ', ') as labels
 	from all_cases ac
 	join omnidesk.cases c 
@@ -419,7 +450,8 @@ sla_cases_final as (
 	 	on c.labels like '%%' || l.label_id || '%%'
 	 where c.closed_at >= '2022-05-01'
 	 and c.created_at >= '2022-05-01'
-	 group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16
+	 and c.case_id = 206874529
+	 group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
 ),
 scs_without_doubles as (
 select 
@@ -436,10 +468,19 @@ min_frt as (
 		sla_chats as frt,
 		pre_min_sla as full_worktime_frt,
 		pre_min_sla_8am as full_8am_frt,
-		scs.sla_by_message as full_frt
+		scs.sla_by_message as full_frt1,
+		case 
+			when fcm.created_at notnull 
+			then datediff(second, fcm.created_at, fsm.created_at)
+			else 0
+		end as full_frt2
 	from scs_without_doubles scs
 	join first_staff_message fsm 
     	on scs.case_id = fsm.case_id and fsm.created_at = scs.created_at
+    join omnidesk.cases c
+    	on c.case_id = scs.case_id
+    left join first_client_message fcm 
+    	on scs.case_id = fcm.case_id and fcm.created_at <= scs.created_at
 	where scs.message_type = 'reply_staff'
 	and scs.rank_doubles = 1 
 ),
@@ -454,7 +495,8 @@ frt_cases as (
 		round(mf.frt::float/60,2) as frt_minutes,
 		round(mf.full_worktime_frt::float/60,2) as full_worktime_frt,
 		round(mf.full_8am_frt::float/60,2) as full_8am_frt,
-		round(mf.full_frt::float/60,2) as full_frt_minutes
+		round(mf.full_frt1::float/60,2) as full_frt_minutes1,
+		round(mf.full_frt2::float/60,2) as full_frt_minutes2
 	from omnidesk.cases c
 	 left join min_frt mf 
 	 	on mf.case_id = c.case_id 
@@ -473,7 +515,8 @@ frt_cases_final as (
 		sfc.frt_minutes as frt_minutes,
 		sfc.full_worktime_frt as full_worktime_frt,
 		sfc.full_8am_frt as full_8am_frt,
-		sfc.full_frt_minutes as full_frt_minutes,
+		sfc.full_frt_minutes1 as full_frt_minutes1,
+		sfc.full_frt_minutes2 as full_frt_minutes2,
 		'https://support.kodland.org/staff/cases/chat/' || c.case_number as omni_link,
 		pd.full_name as first_staff,
 		pd."group" as group_staff,
@@ -520,7 +563,7 @@ frt_cases_final as (
 	    		 ) || '%%')
 	and c.parent_case_id = 0 and c.channel <> 'call' and c.channel <> 'web'
 	and c.created_at >= '2022-05-01'
-	group by 1,2,3,4,5,6,7,8,9,10,11,12,13
+	group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14
 )
 select 
 	coalesce(scf.closed_at, fcf.closed_at)::date as closed_day,
@@ -546,17 +589,20 @@ select
 	fcf.frt_minutes,
 	fcf.full_worktime_frt,
 	fcf.full_8am_frt,
-	fcf.full_frt_minutes,
+	fcf.full_frt_minutes1,
+	fcf.full_frt_minutes2,
 	scf.sla_staff_id,
 	fcf.frt_staff_id,
 	fcf.first_staff as frt_staff_name,
 	fcf.group_staff as frt_staff_group, 
-	fcf.department as frt_staff_department
+	fcf.department as frt_staff_department,
+	(c.created_at + interval '3 hours')::date as created_day,
+	date_part("hour", c.created_at + interval '3 hours') as hour
 from sla_cases_final scf
 full join frt_cases_final fcf
 	on scf.case_id = fcf.case_id
 join omnidesk.cases c
-	on coalesce(scf.case_id, fcf.case_id) = c.case_id 
+	on coalesce(scf.case_id, fcf.case_id) = c.case_id
 left join omnidesk.custom_fields cf_reason
 	on cf_reason.field_id = 4476
 left join omnidesk.custom_fields cf_form
