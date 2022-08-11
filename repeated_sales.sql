@@ -10,8 +10,8 @@ select distinct
  date(getdate()) as download_date,
  'https://kodland.amocrm.ru/leads/detail/' ||bs.amocrm_id as amocrm_link,
  bs.first_name || ' ' || bs.last_name as student_name,
- np.course,
- --np.courseset,
+ --np.course,
+ np.courseset,
  bsg.title as "group",
  case
   when (case
@@ -49,8 +49,10 @@ select distinct
  ) zero_balance
 from
  kodland_shared.basics_student bs
-left join finance.new_payments np on
- bs.amocrm_id = np.amocrm_id
+left join (select *, row_number() over (partition by amocrm_id order by event_time desc) as is_last from finance.new_payments) np on
+ bs.amocrm_id = np.amocrm_id and np.is_last = 1
+/*left join finance.new_payments np 
+	on bs.amocrm_id = np.amocrm_id*/
 left join kodland_shared.basics_studentgroup bsg on
  bs.group_id = bsg.id
 left join finance.wallet_balance wb on
@@ -69,10 +71,10 @@ where
  and bsg.title is not null 
  and (lower(bsg.title) not like '%%tc%%' or lower(bsg.title) like '%%scratch%%')
  and bsg.title not like '%%1-1%%'
- and lower(bsg.title) like 'itl%%'
+ and lower(bsg.title) like 'online%%'
  --and (lower(bsg.title) like 'esp%%' or lower(bsg.title) like 'chi%%' or lower(bsg.title) like 'arg%%')
  --and date(L4) between date(dateadd(day, 1, getdate())) and date(dateadd(week, 1, getdate()))
- and date(L4) between '2022-07-18' and '2022-07-24'
+ and date(L4) between '2022-08-08' and '2022-08-14'
  --and lower(bsg.title) like '%%scratch%%'
  --and m1l1 < '2022-06-01'
 order by L4
