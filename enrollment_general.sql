@@ -124,7 +124,9 @@ left join finance.wallet_transaction wt
  on wt_fisrt.first_substract = wt.transaction_date and wt_fisrt.user_id = wt.user_id
 left join kodland_shared.basics_timetable bt 
  on bt.lesson_id = wt.lesson_id and bt.group_id = wt.group_id
-where cl.pay_order_date >= '2022-06-01')
+where cl.pay_order_date >= '2022-06-01'
+and se.id = 672627
+)
 --where --and se.amocrm_id = 33591444 
 --bt."time"::date <= getdate()
 --and se.id = 593126
@@ -192,4 +194,6 @@ left join finance.wallet_transaction wt
  on wt_fisrt.first_substract = wt.transaction_date and wt_fisrt.user_id = wt.user_id
 left join kodland_shared.basics_timetable bt 
  on bt.lesson_id = wt.lesson_id and bt.group_id = wt.group_id --первый урок по кошельку студента
-where np.event_time >= '2022-06-01' and ('https://kodland.amocrm.ru/leads/detail/' || np.amocrm_id) not in (select dc.enrolled_amo from data_cl dc)
+where np.event_time >= '2022-06-01' 
+--and se.id = 672627 --and 'https://kodland.amocrm.ru/leads/detail/33803274' not in (select dc.enrolled_amo from data_cl dc)
+and ('https://kodland.amocrm.ru/leads/detail/' || np.amocrm_id) not in (select dc.enrolled_amo from data_cl dc)
