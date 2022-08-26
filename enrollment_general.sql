@@ -1,49 +1,33 @@
 with students_enrol as
 (
+select * from (
  select 
   distinct
-  date(min(define_time)) enrol_date,
+  define_time::date as back_enrol_date,
+  row_number() over (partition by amocrm_id order by define_time) rn,
   amocrm_id,
   bs2.id,
   bs2.group_id,
+  bs.group_id as first_group,
   bs2.user_id,
   bs2.first_name || ' ' || bs2.last_name as student_name
- from
-  kodland_shared.basics_student bs2
- join
-  kodland_shared.basics_studentanalytics bs
- on
-  bs.student_id = bs2.id 
- where 
-  bs.is_active-- and 
- group by 2,3,4,5,6
+ from kodland_shared.basics_student bs2
+ join kodland_shared.basics_studentanalytics bs
+	 on bs.student_id = bs2.id 
+ where bs.is_active --and amocrm_id = 32116956
+ ) where rn = 1
 ),
-/*students_start as
-(
- select 
-  distinct
-  date(min(define_time)) start_date,
-  amocrm_id,
-  bs2.id
- from
-  kodland_shared.basics_studentanalytics bs 
- join
-  kodland_shared.basics_student bs2
- on
-  bs.student_id = bs2.id 
- where 
-  bs.is_active and last_ls_id notnull and bs2.created >= '2022-06-01'
- group by 2,3
-)*/
 data_cl as (
 select 
  distinct 
- se.enrol_date,
+ coalesce(la.update_group, se.back_enrol_date) as enrol_date,
  se.student_name,
  se.id as bo_student_id,
- cl.student_id as clo_student_id,
- ('https://kodland.amocrm.ru/leads/detail/' || se.amocrm_id) as enrolled_amo,
- np.amocrm_id as new_payments_amo,
+ ('https://backoffice.kodland.org/ru/student_' || se.id || '/') as backoffice_link,
+ ('https://backoffice.kodland.org/ru/student_' || cl.student_id || '/') as clo_student_id,
+ se.amocrm_id,
+ ('https://kodland.amocrm.ru/leads/detail/' || coalesce(se.amocrm_id, bs.amocrm_id)) as amo_link,
+ ('https://kodland.amocrm.ru/leads/detail/' || np.amocrm_id) as new_payments_amo,
  case 
   when datediff(day, bt."time"::date, wt.transaction_date) > 6
    then wt.transaction_date
@@ -69,6 +53,7 @@ select
     end
  end as pay_date,
  datediff(day, pay_date, first_lesson) as pay_m1l1_gap,
+ datediff(day, pay_date, enrol_date) as pay_enrol_gap,
  --datediff(day, pay_date, enrol_date) as pay_enrol_gap,
  case 
   when lower(lf.pipeline) similar to '%%italy%%|%%poland%%' then 'Europe'
@@ -91,11 +76,18 @@ from (
   c.order_link,
   row_number() over (partition by c.student_id order by pay_order_date) as rn
  from finance.clientorder c
- where c.is_payed = true
+ where c.is_payed = true and c.first_payment_after_mk =true
  ) cl
  where cl.rn = 1) cl
 left join students_enrol se
  on se.id = cl.student_id and se.amocrm_id > 0
+left join 
+	(select 
+		bs.id,
+		bs.amocrm_id
+	from kodland_shared.basics_student bs
+	) bs
+ on bs.id = cl.student_id and bs.amocrm_id > 0
 left join 
  (select
   max(np.event_time) as event_time,
@@ -106,7 +98,7 @@ left join
  ) np
  on np.amocrm_id = se.amocrm_id
 left join amocrm.leads_fact lf 
- on lf.id = se.amocrm_id
+ on lf.id = bs.amocrm_id
 left join kodland_shared.basics_studentgroup bsg 
  on bsg.id = se.group_id
 left join kodland_shared.basics_timetable btfirst 
@@ -124,19 +116,37 @@ left join finance.wallet_transaction wt
  on wt_fisrt.first_substract = wt.transaction_date and wt_fisrt.user_id = wt.user_id
 left join kodland_shared.basics_timetable bt 
  on bt.lesson_id = wt.lesson_id and bt.group_id = wt.group_id
-where cl.pay_order_date >= '2022-06-01'
-and se.id = 672627
-)
+left join 
+(select 
+	distinct
+	la.leads_id,
+	min(la.event_time) as update_group
+from amocrm.leads_attributes la 
+left join students_enrol se 
+	on se.amocrm_id = la.leads_id
+left join kodland_shared.basics_student bs
+	on la.leads_id = bs.amocrm_id
+join kodland_shared.basics_studentgroup bsg 
+ 	on bsg.id = coalesce(coalesce(se.first_group, bs.group_id), bs.old_group_id)
+where lower(la.name) like '%%group%%' and lower(trim(bsg.title)) = lower(trim(la.value))
+group by 1
+) la
+	on la.leads_id = lf.id
+where (cl.pay_order_date < wt_fisrt.first_substract or wt_fisrt.first_substract is null)
+),
+data_np as (
 --where --and se.amocrm_id = 33591444 
 --bt."time"::date <= getdate()
 --and se.id = 593126
-select 
- se.enrol_date,
+select
+ coalesce(la.update_group, se.back_enrol_date) as enrol_date,
  se.student_name,
  se.id as bo_student_id,
+ ('https://backoffice.kodland.org/ru/student_' || se.id || '/') as backoffice_link,
  null as clo_student_id,
+ se.amocrm_id,
  ('https://kodland.amocrm.ru/leads/detail/' || se.amocrm_id) as enrolled_amo,
- np.amocrm_id as new_payments_amo,
+ ('https://kodland.amocrm.ru/leads/detail/' || np.amocrm_id) as new_payments_amo,
  case 
   when datediff(day, bt."time"::date, wt.transaction_date) > 6 and wt.transaction_date notnull
    then wt.transaction_date
@@ -156,6 +166,7 @@ select
    else np.event_time::date 
  end as pay_date,
  datediff(day, pay_date, first_lesson) as pay_m1l1_gap,
+ datediff(day, pay_date, enrol_date) as pay_enrol_gap,
  --datediff(day, pay_date, enrol_date) as pay_enrol_gap,
  case 
   when lower(lf.pipeline) similar to '%%italy%%|%%poland%%' then 'Europe'
@@ -165,13 +176,17 @@ select
   when lower(lf.pipeline) similar to '%%english%%' then 'English'
   when lower(lf.pipeline) similar to '%%онлайн%%' then 'CIS'
  end as department,
- 'not ep' as ep
+ case 
+  when np.sber_check like '%%easy%%' then 'easy_payments'
+  else 'not_ep'
+ end as ep
 from (select
   max(np.event_time) as event_time,
-  np.amocrm_id
+  np.amocrm_id,
+  np.sber_check
  from finance.new_payments np 
  where np.responsible not similar to 'ISM%%||МВП%%'
- group by 2
+ group by 2,3
  ) np
 left join students_enrol se
  on se.amocrm_id = np.amocrm_id and se.amocrm_id > 0
@@ -194,6 +209,29 @@ left join finance.wallet_transaction wt
  on wt_fisrt.first_substract = wt.transaction_date and wt_fisrt.user_id = wt.user_id
 left join kodland_shared.basics_timetable bt 
  on bt.lesson_id = wt.lesson_id and bt.group_id = wt.group_id --первый урок по кошельку студента
-where np.event_time >= '2022-06-01' 
+left join 
+(select 
+	distinct
+	la.leads_id,
+	min(la.event_time) as update_group
+from amocrm.leads_attributes la 
+left join students_enrol se 
+	on se.amocrm_id = la.leads_id
+left join kodland_shared.basics_student bs
+	on la.leads_id = bs.amocrm_id
+join kodland_shared.basics_studentgroup bsg 
+ 	on bsg.id = coalesce(coalesce(se.first_group, bs.group_id), bs.old_group_id)
+where lower(la.name) like '%%group%%' and lower(trim(bsg.title)) = lower(trim(la.value))
+group by 1) la
+	on la.leads_id = lf.id
 --and se.id = 672627 --and 'https://kodland.amocrm.ru/leads/detail/33803274' not in (select dc.enrolled_amo from data_cl dc)
-and ('https://kodland.amocrm.ru/leads/detail/' || np.amocrm_id) not in (select dc.enrolled_amo from data_cl dc)
+where not exists 
+(select dc.amocrm_id from data_cl dc where np.amocrm_id = dc.amocrm_id)
+)
+select *
+from data_cl dc
+where pay_date >= '2022-06-01'
+union 
+select *
+from data_np dn
+where pay_date >= '2022-06-01'
